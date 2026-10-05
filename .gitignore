@@ -1,0 +1,56 @@
+# Python environment and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local settings (config.example.json is the tracked template)
+config.json
+
+# OCR models / caches
+paddlex_cache/
+.paddlex/
+.paddleocr/
+models/
+*.pdmodel
+*.pdiparams
+*.onnx
+
+# Input documents and generated outputs
+*.pdf
+pdf/
+output/
+*.raw.json
+*.summary.json
+*.parsed.json
+_run_summary.json
+_ocr_worker.log
+*.sqlite
+*.sqlite-journal
+*.jsonl
+*.xlsx
+*.docx
+
+# Temporary files and test leftovers
+*.tmp
+*.log
+tmp/
+temp/
+
+# Machine-specific PATH backups
+user_path_backup_*.txt
+
+# Secrets / credentials
+.env
+.env.*
+*.pem
+*.key
+credentials*.json
+secrets*.json
+
+# OS / editor
+Thumbs.db
+.DS_Store
+.idea/
+.vscode/

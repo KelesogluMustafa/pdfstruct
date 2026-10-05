@@ -1,0 +1,19 @@
+{
+  "quality": {
+    "min_page_score": 0.5,
+    "scan_image_coverage": 0.5,
+    "min_chars_over_image": 100,
+    "bad_char_ratio_fail": 0.10,
+    "ocr_review_confidence": 0.60
+  },
+  "ocr": {
+    "python": "auto",
+    "python_candidates": ["C:\\HermesOCR\\Scripts\\python.exe"],
+    "model_cache_dir": "C:\\HermesOCR\\paddlex_cache",
+    "det_model": "PP-OCRv6_medium_det",
+    "rec_model": "latin_PP-OCRv5_mobile_rec",
+    "device": "auto",
+    "dpi": 200,
+    "max_side_px": 4000
+  }
+}

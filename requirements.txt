@@ -1,0 +1,10 @@
+# Runtime (native extraction + page rendering for OCR)
+pypdfium2>=5,<6
+Pillow>=10
+
+# OCR is NOT installed here. The tool calls an existing PaddleOCR environment
+# (default: C:\HermesOCR\Scripts\python.exe) as a subprocess. See config.example.json.
+
+# Export formats (pdfxlsx, pdfdocx). html/txt/md/csv/jsonl/sqlite use the standard library.
+openpyxl>=3.1
+python-docx>=1.1
