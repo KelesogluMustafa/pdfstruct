@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "pdf-pipeline/raw_document.schema.json",
-  "title": "pdf-pipeline raw document",
+  "$id": "pdfstruct/raw_document.schema.json",
+  "title": "PDFStruct raw document",
   "description": "Raw, non-semantic extraction of one PDF. Coordinates are points, origin top-left, page rotation applied.",
   "type": "object",
   "required": [

@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""pdf_export - turn an existing <name>.raw.json into another output format.
+"""pdfstruct.export - turn an existing <name>.raw.json into another output format.
 
 Never extracts or OCRs by itself. For every document:
   1. <output>/<name>.raw.json exists  -> it is used as is (the PDF is not opened)
-  2. otherwise                        -> the normal pdf_to_json pipeline runs once
+  2. otherwise                        -> the normal extraction pipeline runs once
   3. the target format is generated from the raw JSON
 
 These are generic document exports (pages and line blocks). Semantic fields
 (vocabulary entries, invoice fields, ...) still belong in a project parser.
 
 Usage:
-    python pdf_export.py --format html --input <pdf file or folder> --output <folder>
+    python -m pdfstruct.export --format html --input <pdf file or folder> --output <folder>
 """
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-import pdf_to_json
+from . import extract
 
 FORMATS = {"html": ".html", "txt": ".txt", "md": ".md", "csv": ".csv", "xlsx": ".xlsx",
            "docx": ".docx", "jsonl": ".jsonl", "sqlite": ".sqlite"}
@@ -144,7 +144,7 @@ def export_html(raw: dict, path: Path) -> None:
     esc = html.escape
     name = source_name(raw)
     review = set(raw.get("review_pages") or [])
-    low_conf = pdf_to_json.DEFAULT_CONFIG["quality"]["ocr_review_confidence"]
+    low_conf = extract.DEFAULT_CONFIG["quality"]["ocr_review_confidence"]
     out = ["<!doctype html>", '<html lang="und"><head><meta charset="utf-8">',
            '<meta name="viewport" content="width=device-width,initial-scale=1">',
            f"<title>{esc(name)}</title>", f"<style>{_HTML_CSS}</style></head><body><main>",
@@ -421,7 +421,7 @@ def extract_missing(targets: list[Path], out_dir: Path, args) -> str:
     captured = io.StringIO()
     with contextlib.redirect_stdout(captured):
         for target in targets:
-            pdf_to_json.main(["--input", str(target), "--output", str(out_dir), *extra])
+            extract.main(["--input", str(target), "--output", str(out_dir), *extra])
     return captured.getvalue()
 
 
@@ -433,7 +433,7 @@ def main(argv: list[str] | None = None) -> int:
     input_path = Path(args.input).resolve()
     out_dir = Path(args.output).resolve()
 
-    pdfs = {p.stem: p for p in pdf_to_json.collect_pdfs(input_path)} if input_path.exists() else {}
+    pdfs = {p.stem: p for p in extract.collect_pdfs(input_path)} if input_path.exists() else {}
     raws = ({p.name[:-len(RAW_SUFFIX)]: p for p in out_dir.glob("*" + RAW_SUFFIX)}
             if out_dir.is_dir() else {})
     if input_path.is_file():

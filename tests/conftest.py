@@ -8,10 +8,9 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
-TOOL_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(TOOL_DIR))
+from pdfstruct import extract as pdf_to_json
 
-import pdf_to_json  # noqa: E402
+TOOL_DIR = Path(__file__).resolve().parent.parent  # repo root
 
 UMLAUT_LINE = "Die Straße über den Fluss: ä ö ü Ä Ö Ü ß"
 

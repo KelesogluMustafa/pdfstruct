@@ -1,16 +1,16 @@
-#!/usr/bin/env python3
-"""pdf_cli - shared front end of pdfjson / pdfhtml / pdftxt / ... / pdfsqlite.
+"""pdfstruct.cli - the pdfstruct command and its aliases (pdfjson, pdfhtml, ...).
 
-Only decides WHAT to process and WHERE to write; extraction stays in pdf_to_json
-and format generation in pdf_export.
+Only decides WHAT to process and WHERE to write; extraction stays in
+pdfstruct.extract and format generation in pdfstruct.export.
 
-    pdfjson belge.pdf        one file            -> <its folder>/output
-    pdfjson "C:/Belgeler"    all PDFs in folder  -> <folder>/output
-    pdfjson                  all PDFs here       -> ./output
-                             else ./pdf/*.pdf    -> ./output   (old project layout)
+    pdfstruct belge.pdf               one file            -> <its folder>/output
+    pdfstruct "C:/Belgeler"           all PDFs in folder  -> <folder>/output
+    pdfstruct                         all PDFs here       -> ./output
+                                      else ./pdf/*.pdf    -> ./output   (old project layout)
+    pdfstruct --format xlsx belge.pdf another format (default: json)
 
-Usage:
-    python pdf_cli.py <json|html|txt|md|csv|xlsx|docx|jsonl|sqlite> [path] [options]
+pdfjson, pdfhtml, pdftxt, pdfmd, pdfcsv, pdfxlsx, pdfdocx, pdfjsonl and pdfsqlite
+are the same command with the format fixed.
 """
 from __future__ import annotations
 
@@ -21,10 +21,9 @@ import json
 import sys
 from pathlib import Path
 
-import pdf_export
-import pdf_to_json
+from . import __version__, export, extract
 
-COMMANDS = ["json", *pdf_export.FORMATS]
+COMMANDS = ["json", *export.FORMATS]
 
 
 class InputError(Exception):
@@ -33,11 +32,11 @@ class InputError(Exception):
 
 def find_pdfs(folder: Path) -> list[Path]:
     """PDFs directly inside folder (no subfolders)."""
-    return pdf_to_json.collect_pdfs(folder) if folder.is_dir() else []
+    return extract.collect_pdfs(folder) if folder.is_dir() else []
 
 
 def has_raw(folder: Path) -> bool:
-    return folder.is_dir() and any(folder.glob("*" + pdf_export.RAW_SUFFIX))
+    return folder.is_dir() and any(folder.glob("*" + export.RAW_SUFFIX))
 
 
 def resolve_output(explicit: str | None, default: Path, cwd: Path) -> Path:
@@ -76,15 +75,15 @@ def resolve_input(target: str | None, output: str | None, cwd: Path,
     raise InputError("PDF bulunamadı.")
 
 
-def usage(command: str) -> str:
-    name = f"pdf{command}"
-    return f'Kullanım:\n  {name} belge.pdf\n  {name} "C:\\Belgeler"\n  {name}'
+def usage(prog: str) -> str:
+    return f'Kullanım:\n  {prog} belge.pdf\n  {prog} "C:\\Belgeler"\n  {prog}'
 
 
-def build_arg_parser(command: str) -> argparse.ArgumentParser:
-    ap = argparse.ArgumentParser(prog=f"pdf{command}", epilog=usage(command),
+def build_arg_parser(command: str, prog: str) -> argparse.ArgumentParser:
+    ap = argparse.ArgumentParser(prog=prog, epilog=usage(prog),
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("path", nargs="?", help="PDF file or folder (default: PDFs in this folder)")
+    ap.add_argument("--version", action="version", version=f"pdfstruct {__version__}")
     ap.add_argument("--input", dest="input_option", help=argparse.SUPPRESS)  # old spelling
     ap.add_argument("--output", help="output folder (default: 'output' next to the PDFs)")
     mode = ap.add_mutually_exclusive_group()
@@ -100,7 +99,7 @@ def build_arg_parser(command: str) -> argparse.ArgumentParser:
 def run_json(argv: list[str], out_dir: Path) -> int:
     captured = io.StringIO()
     with contextlib.redirect_stdout(captured):
-        code = pdf_to_json.main(argv)
+        code = extract.main(argv)
     summary_path = out_dir / "_run_summary.json"
     if code == 2 or not summary_path.is_file():
         print(captured.getvalue().rstrip())
@@ -138,21 +137,19 @@ def run_json(argv: list[str], out_dir: Path) -> int:
     return code
 
 
-def main(argv: list[str] | None = None, cwd: Path | None = None) -> int:
+def run(command: str, argv: list[str] | None = None, cwd: Path | None = None,
+        prog: str | None = None) -> int:
+    """One format command: resolve input/output, then extract or export."""
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
-    argv = list(sys.argv[1:] if argv is None else argv)
-    if not argv or argv[0] not in COMMANDS:
-        print(f"ERROR: first argument must be one of: {', '.join(COMMANDS)}")
-        return 2
-    command = argv[0]
-    args = build_arg_parser(command).parse_args(argv[1:])
+    prog = prog or f"pdf{command}"
+    args = build_arg_parser(command, prog).parse_args(sys.argv[1:] if argv is None else argv)
     try:
         input_path, out_dir = resolve_input(args.path or args.input_option, args.output,
                                             cwd or Path.cwd(), raw_ok=command != "json")
     except InputError as exc:
-        print(f"{exc}\n\n{usage(command)}")
+        print(f"{exc}\n\n{usage(prog)}")
         return 2
 
     rest = ["--input", str(input_path), "--output", str(out_dir)]
@@ -164,7 +161,26 @@ def main(argv: list[str] | None = None, cwd: Path | None = None) -> int:
             rest += ["--" + option, getattr(args, option)]
     if command == "json":
         return run_json(rest, out_dir)
-    return pdf_export.main(["--format", command, *rest])
+    return export.main(["--format", command, *rest])
+
+
+def main(argv: list[str] | None = None, cwd: Path | None = None) -> int:
+    """pdfstruct [--format FORMAT] [path] [options]; FORMAT defaults to json."""
+    pre = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+    pre.add_argument("--format", choices=COMMANDS, default="json")
+    known, rest = pre.parse_known_args(sys.argv[1:] if argv is None else argv)
+    return run(known.format, rest, cwd, prog="pdfstruct")
+
+
+def _alias(command: str):
+    def entry_point() -> int:
+        return run(command)
+    entry_point.__name__ = f"pdf{command}"
+    return entry_point
+
+
+pdfjson, pdfhtml, pdftxt, pdfmd, pdfcsv, pdfxlsx, pdfdocx, pdfjsonl, pdfsqlite = (
+    _alias(command) for command in COMMANDS)
 
 
 if __name__ == "__main__":

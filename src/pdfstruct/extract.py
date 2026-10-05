@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""pdf_to_json - general-purpose local PDF -> raw JSON pipeline.
+"""pdfstruct.extract - general-purpose local PDF -> raw JSON pipeline.
 
 Deterministic bulk work only: native text extraction (pypdfium2) with an
 automatic, per-page OCR fallback (PaddleOCR in a separate Python process).
 No semantic parsing happens here; project-specific parsers plug in via --parser.
 
 Usage:
-    python pdf_to_json.py --input <pdf file or folder> --output <folder>
+    python -m pdfstruct.extract --input <pdf file or folder> --output <folder>
 """
 from __future__ import annotations
 
@@ -26,10 +26,12 @@ from pathlib import Path
 import pypdfium2 as pdfium
 import pypdfium2.raw as pdfium_c
 
-TOOL_NAME = "pdf-pipeline"
-TOOL_VERSION = "1.0.0"
+from . import __version__
+
+TOOL_NAME = "pdfstruct"
+TOOL_VERSION = __version__
 SCHEMA_VERSION = "1.0"
-TOOL_DIR = Path(__file__).resolve().parent
+PACKAGE_DIR = Path(__file__).resolve().parent
 
 DEFAULT_CONFIG = {
     "quality": {
@@ -65,9 +67,15 @@ _HYPHEN_MARKERS = {"\ufffe", "\x02"}
 
 # ---------------------------------------------------------------- config
 
+def default_config_path() -> Path:
+    """$PDFSTRUCT_CONFIG if set, else ~/.pdfstruct/config.json (both optional)."""
+    override = os.environ.get("PDFSTRUCT_CONFIG")
+    return Path(override) if override else Path.home() / ".pdfstruct" / "config.json"
+
+
 def load_config(path: Path | None) -> dict:
     cfg = json.loads(json.dumps(DEFAULT_CONFIG))
-    candidate = path or (TOOL_DIR / "config.json")
+    candidate = path or default_config_path()
     if candidate.is_file():
         user = json.loads(candidate.read_text(encoding="utf-8"))
         for section, values in user.items():
@@ -265,7 +273,7 @@ class OcrClient:
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         self._log = self.log_path.open("w", encoding="utf-8", errors="replace")
         self.proc = subprocess.Popen(
-            [python, str(TOOL_DIR / "ocr_worker.py"),
+            [python, str(PACKAGE_DIR / "ocr_worker.py"),
              "--det-model", self.cfg["det_model"],
              "--rec-model", self.cfg["rec_model"],
              "--device", self.cfg["device"]],
@@ -533,7 +541,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--overwrite", action="store_true",
                     help="re-extract even if an up-to-date .raw.json exists")
     ap.add_argument("--parser", help="project parser .py defining parse(raw, context)")
-    ap.add_argument("--config", help="config JSON (default: config.json next to this script)")
+    ap.add_argument("--config",
+                    help="config JSON (default: $PDFSTRUCT_CONFIG or ~/.pdfstruct/config.json)")
     return ap
 
 

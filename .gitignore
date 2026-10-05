@@ -5,6 +5,11 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
 # Local settings (config.example.json is the tracked template)
 config.json
 

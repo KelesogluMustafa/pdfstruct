@@ -1,4 +1,36 @@
-# pdf-pipeline
+# PDFStruct
+
+PDFStruct converts PDFs locally using native text extraction or OCR and exports
+structured content to JSON, HTML, TXT, Markdown, CSV, XLSX, DOCX, JSONL and SQLite.
+
+## Quick start
+
+Local development install (not published on PyPI yet), from the repository folder:
+
+```
+pip install -e .
+```
+
+Usage:
+
+```
+pdfstruct belge.pdf
+pdfstruct "C:\Belgeler"
+pdfstruct --format xlsx belge.pdf
+```
+
+`--format` is one of `json` (default), `html`, `txt`, `md`, `csv`, `xlsx`, `docx`, `jsonl`,
+`sqlite`. Each format also has a short alias that works exactly the same way:
+
+```
+pdfjson belge.pdf
+pdfxlsx belge.pdf
+```
+
+Aliases: `pdfjson`, `pdfhtml`, `pdftxt`, `pdfmd`, `pdfcsv`, `pdfxlsx`, `pdfdocx`, `pdfjsonl`,
+`pdfsqlite`. OCR needs a separate PaddleOCR environment, see [OCR ortamı](#ocr-ortamı).
+
+---
 
 Genel amaçlı, projeden bağımsız, tamamen local **PDF → ham JSON** aracı.
 
@@ -69,7 +101,7 @@ Tek dosyada ayrıca `METHOD` ve `TEXT_LAYER_SCORE` satırları basılır.
 `pdfjson` yolları çözüp bu komutu çağırır. Yolları kendin vermek istersen:
 
 ```
-C:\Users\musta\Projects\_tools\pdf-pipeline\pdf2json.cmd --input "C:\...\pdf" --output "C:\...\output"
+C:\Users\musta\Projects\_tools\PDFStruct\pdf2json.cmd --input "C:\...\pdf" --output "C:\...\output"
 ```
 
 Aracın kendi venv'ini kullanır. `--input` tek bir PDF veya klasör olabilir. Çıktısı
@@ -101,7 +133,8 @@ Her sayfa için 0–1 arası skor = üç bileşenin **en zayıfı**:
 
 Belge skoru (`text_layer_score`) = boş olmayan sayfaların ortalaması. Bütün bileşenler
 `.summary.json` içinde sayfa sayfa yazılır; karar her zaman açıklanabilir.
-Eşikler `config.json` ile değiştirilebilir (`config.example.json` dosyasını kopyala).
+Eşikler ayar dosyasıyla değiştirilebilir: `config.example.json` dosyasını
+`~/.pdfstruct/config.json` olarak kopyala (veya `--config` / `PDFSTRUCT_CONFIG` ile yol ver).
 
 Bilinen sınır: taranmış bir PDF'e daha önce başka bir araçla *düzgün görünen ama yanlış*
 bir metin katmanı eklenmişse skor bunu yakalayamaz. Şüphe varsa `--force-ocr` kullan.
@@ -209,7 +242,7 @@ Notlar:
 | `--native-only` | OCR'ı hiç çalıştırmaz; zayıf sayfalar `review_pages`'e düşer |
 | `--overwrite` | Güncel `.raw.json` olsa bile yeniden çıkarır |
 | `--parser <dosya.py>` | Her belge için project parser çalıştırır |
-| `--config <dosya.json>` | Ayar dosyası (varsayılan: aracın yanındaki `config.json`, yoksa gömülü varsayılanlar) |
+| `--config <dosya.json>` | Ayar dosyası (varsayılan: `PDFSTRUCT_CONFIG` veya `~/.pdfstruct/config.json`; yoksa gömülü varsayılanlar) |
 
 **İkinci çalıştırma (idempotent):** kaynak PDF (sha256) ve ayarlar değişmediyse belge atlanır
 (`SKIPPED`). PDF veya ayar değişirse otomatik yeniden çıkarılır. Çıktı deterministiktir
@@ -253,7 +286,7 @@ paddlepaddle-gpu) **alt süreç** olarak çağırır: `ocr_worker.py` o Python i
 
 - GPU varsa `gpu:0`, yoksa CPU (`ocr.device: "auto"`).
 - Varsayılan tanıma modeli `latin_PP-OCRv5_mobile_rec` (Almanca/Türkçe/İngilizce dahil Latin
-  alfabeleri). Başka alfabe için `config.json` → `ocr.rec_model`.
+  alfabeleri). Başka alfabe için ayar dosyası → `ocr.rec_model`.
 - OCR ortamı bulunamazsa araç çökmez: native metin korunur, sayfalar `review_pages`'e yazılır,
   terminalde `OCR_UNAVAILABLE` satırı çıkar.
 - Başka bir makinede: PaddleOCR 3.x kurulu herhangi bir Python'un yolunu `ocr.python`'a yaz.
@@ -261,16 +294,21 @@ paddlepaddle-gpu) **alt süreç** olarak çağırır: `ocr_worker.py` o Python i
 ## Kurulum (yeniden kurmak gerekirse)
 
 ```
-cd C:\Users\musta\Projects\_tools\pdf-pipeline
+cd C:\Users\musta\Projects\_tools\PDFStruct
 python -m venv .venv
-.venv\Scripts\python.exe -m pip install -r requirements.txt
+.venv\Scripts\python.exe -m pip install -e ".[dev]"
 ```
 
-Testler:
+Bu klasördeki `.cmd` dosyaları (`pdfjson.cmd`, `pdfhtml.cmd`, ...) bu `.venv`'i kullanır ve
+klasör USER PATH'te olduğu için venv'i aktive etmeden her yerden çalışır. Başka bir Python
+ortamına `pip install -e .` ile kurulduğunda aynı komutlar o ortamın kendi console script'leri
+olarak gelir (Windows/macOS/Linux).
+
+Testler ve paket derleme:
 
 ```
-.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
-.venv\Scripts\python.exe -m pytest tests -q
+.venv\Scripts\python.exe -m pytest -q
+.venv\Scripts\python.exe -m build
 ```
 
 ## Claude ile kullanım
@@ -284,20 +322,20 @@ kopyalanacak kısa snippet de orada).
 ## Dosyalar
 
 ```
-pdf-pipeline\
-├── pdf_to_json.py          ana araç (CLI, native çıkarım, kalite skoru, parser hook)
-├── ocr_worker.py           OCR alt süreci (PaddleOCR'lı Python ile çalışır)
-├── pdf2json.cmd            alt seviye komut (--input / --output elle verilir)
-├── pdfjson.cmd             ana komut: dosya / klasör / argümansız
-├── pdf_cli.py              ortak girdi-çıktı yolu çözümleme (tüm komutlar)
-├── pdf_export.py           raw.json → html/txt/md/csv/xlsx/docx/jsonl/sqlite
-├── pdfexport.cmd           format komutlarının ortak başlatıcısı
-├── pdfhtml.cmd … pdfsqlite.cmd   sekiz format komutu
-├── config.example.json     ayar örneği (config.json olarak kopyala)
-├── requirements.txt / requirements-dev.txt
+PDFStruct\
+├── pyproject.toml          paket tanımı, bağımlılıklar, console script'ler
+├── src\pdfstruct\
+│   ├── __init__.py         sürüm (tek kaynak)
+│   ├── cli.py              pdfstruct + alias komutları, girdi/çıktı yolu çözümleme
+│   ├── extract.py          native çıkarım, kalite skoru, OCR istemcisi, parser hook
+│   ├── export.py           raw.json → html/txt/md/csv/xlsx/docx/jsonl/sqlite
+│   └── ocr_worker.py       OCR alt süreci (PaddleOCR'lı Python ile çalışır)
+├── pdfstruct.cmd, pdfjson.cmd … pdfsqlite.cmd   venv'i kendisi seçen Windows komutları
+├── pdfexport.cmd, pdf2json.cmd                ortak başlatıcı / alt seviye komut
+├── config.example.json     ayar örneği
 ├── schemas\raw_document.schema.json
 ├── examples\example_parser.py
 ├── tests\
-├── README.md
+├── README.md, CHANGELOG.md, LICENSE
 └── CLAUDE_RULES.md
 ```

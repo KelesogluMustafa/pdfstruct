@@ -1,4 +1,4 @@
-"""Example project parser for pdf_to_json.py --parser.
+"""Example project parser for pdfjson --parser.
 
 Contract (the only coupling between the general tool and a project parser):
 

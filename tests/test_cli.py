@@ -6,13 +6,14 @@ from pathlib import Path
 
 import pytest
 
-import pdf_cli
-import pdf_to_json
+from pdfstruct import cli as pdf_cli
+from pdfstruct import extract as pdf_to_json
 from conftest import TOOL_DIR, make_text_pdf
 
 
 def run(cwd: Path, *argv) -> int:
-    return pdf_cli.main([str(a) for a in argv], cwd=cwd)
+    command, *rest = (str(a) for a in argv)
+    return pdf_cli.run(command, rest, cwd=cwd)
 
 
 def raws(folder: Path) -> list[str]:

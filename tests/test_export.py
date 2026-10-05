@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-import pdf_export
-import pdf_to_json
+from pdfstruct import export as pdf_export
+from pdfstruct import extract as pdf_to_json
 from conftest import TOOL_DIR, UMLAUT_LINE, make_scan_pdf, make_text_pdf
 
 UMLAUTS = "äöüÄÖÜß"

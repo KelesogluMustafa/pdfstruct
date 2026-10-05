@@ -1,4 +1,4 @@
-"""OCR worker for pdf_to_json.py.
+"""OCR worker for pdfstruct.extract.
 
 Runs inside a Python environment that has PaddleOCR 3.x installed (by default the
 existing C:\\HermesOCR venv; nothing is written there by this script). The model
