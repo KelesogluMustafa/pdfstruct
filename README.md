@@ -30,6 +30,25 @@ pdfxlsx belge.pdf
 Aliases: `pdfjson`, `pdfhtml`, `pdftxt`, `pdfmd`, `pdfcsv`, `pdfxlsx`, `pdfdocx`, `pdfjsonl`,
 `pdfsqlite`. OCR needs a separate PaddleOCR environment, see [OCR ortamı](#ocr-ortamı).
 
+## Project Principles
+
+PDFStruct is free and open source.
+All core functionality is available without payment, accounts, usage limits or tracking.
+Voluntary donations may support future development, but never unlock features.
+
+## Development
+
+```
+pip install -e ".[dev]"
+python scripts/ci_local.py
+```
+
+`scripts/ci_local.py` (Windows shortcut: `ci-local`) runs the whole local CI in one go:
+import and version check, test suite, wheel + sdist build and validation, a clean temporary
+venv with the built wheel, `--help` / `--version` for all 10 console scripts, a small native
+end-to-end run, and a targeted OCR check that reports `PASS`, `SKIPPED` (no OCR environment)
+or `FAIL`. Output is one line per step; full logs appear only for failing steps.
+
 ---
 
 Genel amaçlı, projeden bağımsız, tamamen local **PDF → ham JSON** aracı.
@@ -304,12 +323,9 @@ klasör USER PATH'te olduğu için venv'i aktive etmeden her yerden çalışır.
 ortamına `pip install -e .` ile kurulduğunda aynı komutlar o ortamın kendi console script'leri
 olarak gelir (Windows/macOS/Linux).
 
-Testler ve paket derleme:
-
-```
-.venv\Scripts\python.exe -m pytest -q
-.venv\Scripts\python.exe -m build
-```
+Testler, derleme ve kurulum doğrulamasının tamamı tek komutla: `ci-local`
+(= `.venv\Scripts\python.exe scripts\ci_local.py`). Yalnız testler:
+`.venv\Scripts\python.exe -m pytest -q`.
 
 ## Claude ile kullanım
 
@@ -332,6 +348,7 @@ PDFStruct\
 │   └── ocr_worker.py       OCR alt süreci (PaddleOCR'lı Python ile çalışır)
 ├── pdfstruct.cmd, pdfjson.cmd … pdfsqlite.cmd   venv'i kendisi seçen Windows komutları
 ├── pdfexport.cmd, pdf2json.cmd                ortak başlatıcı / alt seviye komut
+├── scripts\ci_local.py, ci-local.cmd         tek komutluk local CI
 ├── config.example.json     ayar örneği
 ├── schemas\raw_document.schema.json
 ├── examples\example_parser.py
