@@ -2,6 +2,7 @@
 import os
 import subprocess
 import sys
+import sysconfig
 from importlib import metadata
 from pathlib import Path
 
@@ -13,7 +14,7 @@ from pdfstruct import cli, export, extract
 
 ALIASES = ["pdfjson", "pdfhtml", "pdftxt", "pdfmd", "pdfcsv", "pdfxlsx", "pdfdocx",
            "pdfjsonl", "pdfsqlite"]
-SCRIPTS_DIR = Path(sys.executable).parent
+SCRIPTS_DIR = Path(sysconfig.get_path("scripts"))  # venv: next to python; system: <prefix>/Scripts or bin
 
 
 def test_import_and_single_version():
