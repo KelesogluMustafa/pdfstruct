@@ -144,7 +144,13 @@ def make_fixture(folder: Path) -> Path:
 
 def step_native(venv: Path, work: Path) -> None:
     pdf = make_fixture(work)
-    out = sh(script_path(venv, "pdfstruct"), pdf, cwd=work)
+    # bare `pdfstruct` is interactive; without a terminal it must exit 2 at once, never hang
+    probe = subprocess.run([str(script_path(venv, "pdfstruct"))], cwd=work, env=ENV, input="",
+                           capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           timeout=120)
+    if probe.returncode != 2 or "--format" not in probe.stdout:
+        raise StepFailed(f"bare pdfstruct without a TTY: exit {probe.returncode}\n{probe.stdout}")
+    out = sh(script_path(venv, "pdfstruct"), pdf, "--format", "json", cwd=work)
     if "FAILED: 0" not in out or "PROCESSED: 1" not in out:
         raise StepFailed(out)
     raw = work / "output" / "belge (ä).raw.json"

@@ -3,7 +3,27 @@
 PDFStruct converts PDFs locally using native text extraction or OCR and exports
 structured content to JSON, HTML, TXT, Markdown, CSV, XLSX, DOCX, JSONL and SQLite.
 
-## Quick start
+## Easy usage
+
+Run `pdfstruct` inside a folder containing PDFs:
+
+```
+pdfstruct
+```
+
+1. Select one or more PDF files.
+2. Select one or more output formats.
+3. PDFStruct converts them into `output/`.
+
+The menus use the arrow keys, `SPACE` to select, `A` for all, `ENTER` to continue,
+`B` to go back and `Q` to quit.
+
+```
+pdfstruct document.pdf      choose the output formats for that file
+pdfstruct "C:\Documents"    pick PDFs from that folder, then formats
+```
+
+## Install
 
 Local development install (not published on PyPI yet), from the repository folder:
 
@@ -11,40 +31,22 @@ Local development install (not published on PyPI yet), from the repository folde
 pip install -e .
 ```
 
-Usage:
+## Scripts and automation (non-interactive)
 
 ```
-pdfstruct belge.pdf
-pdfstruct "C:\Belgeler"
-pdfstruct --format xlsx belge.pdf
+pdfstruct document.pdf --format xlsx
+pdfstruct document.pdf --format json,xlsx,docx
+pdfxlsx document.pdf
+pdfjson                       all PDFs in the current folder
+pdfjson "C:\Documents"        all PDFs in that folder
 ```
 
-`--format` is one of `json` (default), `html`, `txt`, `md`, `csv`, `xlsx`, `docx`, `jsonl`,
-`sqlite`. Each format also has a short alias that works exactly the same way:
-
-```
-pdfjson belge.pdf
-pdfxlsx belge.pdf
-```
-
-Aliases: `pdfjson`, `pdfhtml`, `pdftxt`, `pdfmd`, `pdfcsv`, `pdfxlsx`, `pdfdocx`, `pdfjsonl`,
-`pdfsqlite`.
-
-PDFStruct automatically uses native PDF text when available and OCR when needed: each page
-gets a text-layer quality score, and pages that fail it (scans, photos) go through OCR. You
-never have to choose. `--force-ocr` runs OCR on every page, `--native-only` never runs it.
-
-OCR runs inside the same Python environment (PaddleOCR, CPU by default; no CUDA, no GPU
-and no separate installation needed). The OCR packages are installed together with
-PDFStruct on platforms that have official PaddlePaddle CPU wheels: Windows x86_64,
-Linux x86_64 and macOS Apple Silicon, with Python 3.9–3.13. On the first OCR run the two
-models (about 70 MB) are downloaded once to `~/.pdfstruct/models` and reused afterwards;
-you will see `Preparing OCR models for first use...`. Elsewhere PDFStruct still installs and
-extracts native text; a page that would need OCR is reported as `OCR support is not
-available on this platform` and listed under `REVIEW_PAGES`.
-
-Verified so far: Windows 11 x86_64 with Python 3.13 (native extraction and CPU OCR).
-Other platforms are covered by the published wheels but have not been tested yet.
+`--format` takes `json` (default), `html`, `txt`, `md`, `csv`, `xlsx`, `docx`, `jsonl` or
+`sqlite`; repeat it or comma-separate for several. Each format also has an alias
+(`pdfjson`, `pdfhtml`, `pdftxt`, `pdfmd`, `pdfcsv`, `pdfxlsx`, `pdfdocx`, `pdfjsonl`,
+`pdfsqlite`) that never shows a menu. Without a terminal (CI, pipes), a bare `pdfstruct`
+prints usage instead of waiting for input. Every PDF is extracted once and all requested
+formats are produced from the same raw JSON.
 
 ## Project Principles
 
@@ -108,6 +110,7 @@ pdfjson "C:\Belgeler"
 - Aynı komutu tekrar çalıştırmak güvenlidir: değişmemiş PDF'ler atlanır (`SKIPPED`).
 - `pdfhtml`, `pdftxt`, `pdfmd`, `pdfcsv`, `pdfxlsx`, `pdfdocx`, `pdfjsonl`, `pdfsqlite` aynı
   şekilde kullanılır (`pdfhtml belge.pdf`, `pdfxlsx`, `pdftxt "C:\Belgeler"`).
+- `pdfstruct` komutu `--format` verilmezse menü açar (yukarıdaki *Easy usage*); alias'lar hiç menü açmaz.
 
 Argüman verilmediğinde sıra: (1) bulunduğun klasördeki `*.pdf`, (2) orada PDF yoksa `.\pdf\`
 alt klasörü (çıktı `.\output\`). `pdf\` klasörü **zorunlu değildir**; yalnız eski kullanımla
@@ -136,7 +139,7 @@ Tek dosyada ayrıca `METHOD` ve `TEXT_LAYER_SCORE` satırları basılır.
 `pdfjson` yolları çözüp bu komutu çağırır. Yolları kendin vermek istersen:
 
 ```
-C:\Users\musta\Projects\_tools\PDFStruct\pdf2json.cmd --input "C:\...\pdf" --output "C:\...\output"
+<repo>\pdf2json.cmd --input "C:\...\pdf" --output "C:\...\output"
 ```
 
 Aracın kendi venv'ini kullanır. `--input` tek bir PDF veya klasör olabilir. Çıktısı
@@ -338,7 +341,7 @@ Python yolu veya CUDA gerekmez.
 ## Kurulum (yeniden kurmak gerekirse)
 
 ```
-cd C:\Users\musta\Projects\_tools\PDFStruct
+cd <repo>
 python -m venv .venv
 .venv\Scripts\python.exe -m pip install -e ".[dev]"
 ```
@@ -368,6 +371,7 @@ PDFStruct\
 ├── src\pdfstruct\
 │   ├── __init__.py         sürüm (tek kaynak)
 │   ├── cli.py              pdfstruct + alias komutları, girdi/çıktı yolu çözümleme
+│   ├── interactive.py      menüler (bare pdfstruct)
 │   ├── extract.py          native çıkarım, kalite skoru, OCR istemcisi, parser hook
 │   ├── export.py           raw.json → html/txt/md/csv/xlsx/docx/jsonl/sqlite
 │   └── ocr.py              OCR backend (PaddleOCR, aynı süreçte, tembel yükleme)

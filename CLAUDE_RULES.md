@@ -17,7 +17,7 @@ pdfjson                  all PDFs in the current folder, else .\pdf\*.pdf  -> .\
 `pdfjson`, `pdfhtml`, ... are its per-format aliases.
 
 Options: `--output <dir>`, `--force-ocr`, `--native-only`, `--overwrite`, `--parser <parser.py>`,
-`--config <json>`. If `pdfjson` is not on PATH: `C:\Users\musta\Projects\_tools\PDFStruct\pdfjson.cmd`.
+`--config <json>`. If `pdfjson` is not on PATH: `<repo>\pdfjson.cmd`.
 
 ## Other output formats
 
@@ -76,5 +76,5 @@ Bulk/deterministic work belongs to Python. Only ambiguous/review items belong to
   `output\_run_summary.json`, `output\*.summary.json`, and pages listed in `review_pages`.
 - Document-specific parsing goes into a project parser run with `--parser <parser.py>`;
   read its counts/errors/samples, not its full output.
-- Full rules: `C:\Users\musta\Projects\_tools\PDFStruct\CLAUDE_RULES.md`
+- Full rules: `<repo>\CLAUDE_RULES.md`
 ```

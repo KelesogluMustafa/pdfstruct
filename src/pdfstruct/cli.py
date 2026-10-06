@@ -3,11 +3,12 @@
 Only decides WHAT to process and WHERE to write; extraction stays in
 pdfstruct.extract and format generation in pdfstruct.export.
 
-    pdfstruct belge.pdf               one file            -> <its folder>/output
-    pdfstruct "C:/Belgeler"           all PDFs in folder  -> <folder>/output
-    pdfstruct                         all PDFs here       -> ./output
-                                      else ./pdf/*.pdf    -> ./output   (old project layout)
-    pdfstruct --format xlsx belge.pdf another format (default: json)
+    pdfstruct                         menus: pick PDFs here, then formats
+    pdfstruct belge.pdf               menu: pick formats for that file
+    pdfstruct "C:/Belgeler"           menus for the PDFs in that folder
+    pdfstruct belge.pdf --format xlsx non-interactive, one or more formats
+    pdfjson belge.pdf | pdfjson       aliases: always non-interactive (no args = all PDFs
+                                      here, else ./pdf/*.pdf) -> output/ next to the PDFs
 
 pdfjson, pdfhtml, pdftxt, pdfmd, pdfcsv, pdfxlsx, pdfdocx, pdfjsonl and pdfsqlite
 are the same command with the format fixed.
@@ -84,6 +85,10 @@ def build_arg_parser(command: str, prog: str) -> argparse.ArgumentParser:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("path", nargs="?", help="PDF file or folder (default: PDFs in this folder)")
     ap.add_argument("--version", action="version", version=f"pdfstruct {__version__}")
+    if prog == "pdfstruct":  # consumed earlier by main(); listed here for --help
+        ap.add_argument("--format", action="append", metavar="FMT",
+                        help="json, html, txt, md, csv, xlsx, docx, jsonl or sqlite; repeat or "
+                             "comma-separate for several. Without it, pdfstruct shows menus.")
     ap.add_argument("--input", dest="input_option", help=argparse.SUPPRESS)  # old spelling
     ap.add_argument("--output", help="output folder (default: 'output' next to the PDFs)")
     mode = ap.add_mutually_exclusive_group()
@@ -152,24 +157,109 @@ def run(command: str, argv: list[str] | None = None, cwd: Path | None = None,
         print(f"{exc}\n\n{usage(prog)}")
         return 2
 
-    rest = ["--input", str(input_path), "--output", str(out_dir)]
+    rest = ["--input", str(input_path), "--output", str(out_dir), *_passthrough(args)]
+    if command == "json":
+        return run_json(rest, out_dir)
+    return export.main(["--format", command, *rest])
+
+
+def _passthrough(args) -> list[str]:
+    """Extraction/export options of a parsed namespace as argv again."""
+    rest = []
     for flag in ("force_ocr", "native_only", "overwrite"):
         if getattr(args, flag, False):
             rest.append("--" + flag.replace("_", "-"))
     for option in ("config", "parser"):
         if getattr(args, option, None):
             rest += ["--" + option, getattr(args, option)]
-    if command == "json":
-        return run_json(rest, out_dir)
-    return export.main(["--format", command, *rest])
+    return rest
 
 
-def main(argv: list[str] | None = None, cwd: Path | None = None) -> int:
-    """pdfstruct [--format FORMAT] [path] [options]; FORMAT defaults to json."""
+def convert(pdfs: list[Path], formats: list[str], out_dir: Path, options: list[str],
+            write=None) -> int:
+    """N PDFs x M formats through the normal single-format path, one line per export.
+
+    Each PDF is extracted at most once: the first format creates <name>.raw.json
+    (json directly, any other format through export's missing-raw step) and the
+    remaining formats reuse it. Returns the number of failed exports."""
+    write = write or (lambda text: print(text, end=""))
+    ordered = [f for f in COMMANDS if f in formats]  # json first, so extraction happens once
+    failures = 0
+    for pdf in pdfs:
+        write(f"{pdf.name}\n")
+        for fmt in ordered:
+            argv = ["--input", str(pdf), "--output", str(out_dir), *options]
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                try:
+                    code = extract.main(argv) if fmt == "json" else export.main(["--format", fmt, *argv])
+                except Exception as exc:  # keep going with the other exports
+                    captured.write(f"{type(exc).__name__}: {exc}\n")
+                    code = 1
+            if code == 0:
+                write(f"  \u2713 {fmt.upper()}\n")
+            else:
+                failures += 1
+                tail = captured.getvalue().strip().splitlines()
+                write(f"  \u2717 {fmt.upper()}  {tail[-1] if tail else 'failed'}\n")
+    return failures
+
+
+def main(argv: list[str] | None = None, cwd: Path | None = None, **ui) -> int:
+    """pdfstruct [path] [--format FORMAT ...] [options]
+
+    With --format: non-interactive, exactly like the pdf<format> aliases
+    (several formats run one after another). Without --format and on a real
+    terminal: interactive menus. Without --format and without a terminal: usage."""
+    from . import interactive
+
     pre = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
-    pre.add_argument("--format", choices=COMMANDS, default="json")
+    pre.add_argument("--format", action="append", default=[],
+                     help="repeat or comma-separate for several: --format json --format xlsx")
     known, rest = pre.parse_known_args(sys.argv[1:] if argv is None else argv)
-    return run(known.format, rest, cwd, prog="pdfstruct")
+    cwd = (cwd or Path.cwd()).resolve()
+    formats = [f.strip().lower() for item in known.format for f in item.split(",") if f.strip()]
+    unknown = [f for f in formats if f not in COMMANDS]
+    if unknown:
+        print(f"unknown format: {', '.join(unknown)} (choose from {', '.join(COMMANDS)})")
+        return 2
+    known.format = list(dict.fromkeys(formats))
+    if len(known.format) == 1:
+        return run(known.format[0], rest, cwd, prog="pdfstruct")
+
+    args = build_arg_parser("json", "pdfstruct").parse_args(rest)
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+    target = args.path or args.input_option
+    out_dir = resolve_output(args.output, None, cwd) if args.output else None
+
+    if known.format:  # several formats, non-interactive
+        try:
+            input_path, default_out = resolve_input(target, args.output, cwd)
+        except InputError as exc:
+            print(f"{exc}\n\n{usage('pdfstruct')}")
+            return 2
+        pdfs = [input_path] if input_path.is_file() else find_pdfs(input_path)
+        failures = convert(pdfs, known.format, out_dir or default_out, _passthrough(args))
+        print(f"\nOUTPUT: {out_dir or default_out}")
+        return 1 if failures else 0
+
+    path = (cwd / Path(target.rstrip('"')).expanduser()).resolve() if target else None
+    if path is not None and not path.exists():
+        print(f"Dosya veya klasör bulunamadı: {path}\n\n{usage('pdfstruct')}")
+        return 2
+    if path is not None and path.is_file() and path.suffix.lower() != ".pdf":
+        print(f"PDF değil: {path}\n\n{usage('pdfstruct')}")
+        return 2
+    if not ui and not interactive.is_tty():
+        print("pdfstruct needs a terminal for its menus. In scripts use --format, e.g.\n"
+              "  pdfstruct belge.pdf --format json xlsx\n  pdfjson belge.pdf\n\n"
+              + usage("pdfstruct"))
+        return 2
+    if not ui:
+        interactive.enable_ansi()
+    return interactive.session(cwd, path, out_dir, _passthrough(args), **ui)
 
 
 def _alias(command: str):

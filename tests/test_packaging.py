@@ -47,7 +47,7 @@ def test_installed_scripts_run(name):
 
 def test_pdfstruct_main_cli(tmp_path, capsys):
     make_text_pdf(tmp_path / "belge.pdf")
-    assert cli.main(["belge.pdf"], cwd=tmp_path) == 0  # default format: json
+    assert cli.main(["belge.pdf", "--format", "json"], cwd=tmp_path) == 0
     assert (tmp_path / "output" / "belge.raw.json").is_file()
     assert "FILES FOUND: 1" in capsys.readouterr().out
     assert cli.main(["--format", "xlsx", "belge.pdf"], cwd=tmp_path) == 0
@@ -55,7 +55,7 @@ def test_pdfstruct_main_cli(tmp_path, capsys):
     assert "RAW_REUSED: 1" in capsys.readouterr().out
     for suffix in (".xlsx", ".md"):
         assert (tmp_path / "output" / f"belge{suffix}").is_file()
-    assert cli.main([], cwd=tmp_path / "output") == 2  # no PDF there
+    assert cli.main(["--format", "txt"], cwd=tmp_path / "output") == 2  # no PDF there
     assert "pdfstruct belge.pdf" in capsys.readouterr().out
     assert set(cli.COMMANDS) == {"json", *export.FORMATS}
 
