@@ -219,7 +219,8 @@ def test_nothing_to_do(tmp_path, capsys):
     assert "ERROR" in capsys.readouterr().out
 
 
-@pytest.mark.skipif(os.name != "nt", reason="cmd wrappers are Windows only")
+@pytest.mark.skipif(os.name != "nt" or not (TOOL_DIR / ".venv" / "Scripts" / "python.exe").is_file(),
+                    reason="the .cmd wrappers need the repo venv on Windows")
 def test_cmd_wrappers(project):
     src, out = project
     for fmt in pdf_export.FORMATS:

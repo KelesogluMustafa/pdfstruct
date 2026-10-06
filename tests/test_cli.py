@@ -170,7 +170,8 @@ def test_format_command_shares_input_rules(tmp_path, monkeypatch, capsys):
     assert (tmp_path / "output" / "b.jsonl").is_file()
 
 
-@pytest.mark.skipif(os.name != "nt", reason="cmd wrappers are Windows only")
+@pytest.mark.skipif(os.name != "nt" or not (TOOL_DIR / ".venv" / "Scripts" / "python.exe").is_file(),
+                    reason="the .cmd wrappers need the repo venv on Windows")
 def test_cmd_wrappers_with_awkward_path(tmp_path):
     folder = tmp_path / "Belgeler (2026) ğüş"
     folder.mkdir()

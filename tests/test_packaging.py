@@ -1,5 +1,5 @@
 """Packaging: import name, single version source, console entry points."""
-import shutil
+import os
 import subprocess
 import sys
 from importlib import metadata
@@ -36,8 +36,9 @@ def test_console_entry_points_declared():
 
 @pytest.mark.parametrize("name", ["pdfstruct", *ALIASES])
 def test_installed_scripts_run(name):
-    script = shutil.which(name, path=str(SCRIPTS_DIR))
-    assert script, f"{name} not installed next to {sys.executable}"
+    # not shutil.which(): on Windows it would also look in the cwd and find the repo's .cmd
+    script = SCRIPTS_DIR / (name + (".exe" if os.name == "nt" else ""))
+    assert script.is_file(), f"{name} not installed next to {sys.executable}"
     result = subprocess.run([script, "--help"], capture_output=True, text=True,
                             encoding="utf-8", errors="replace")
     assert result.returncode == 0 and f"{name} belge.pdf" in result.stdout
