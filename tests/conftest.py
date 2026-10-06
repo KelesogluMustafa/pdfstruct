@@ -67,5 +67,5 @@ def run_tool():
 
 @pytest.fixture(scope="session")
 def ocr_available() -> bool:
-    cfg = pdf_to_json.load_config(None)
-    return pdf_to_json.OcrClient(cfg["ocr"], Path("unused.log")).resolve_python() is not None
+    from pdfstruct import ocr
+    return ocr.available()

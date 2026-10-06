@@ -96,7 +96,7 @@ def step_build(version: str) -> tuple[Path, Path]:
         declared = wheel.read(entry_points).decode()
         missing = [s for s in SCRIPTS if f"{s} = pdfstruct.cli:" not in declared]
         for required in ("pdfstruct/__init__.py", "pdfstruct/cli.py", "pdfstruct/extract.py",
-                         "pdfstruct/export.py", "pdfstruct/ocr_worker.py"):
+                         "pdfstruct/export.py", "pdfstruct/ocr.py"):
             if required not in names:
                 missing.append(required)
     with tarfile.open(sdists[0]) as sdist:
@@ -161,15 +161,38 @@ def step_native(venv: Path, work: Path) -> None:
         raise StepFailed(out)
 
 
-def step_ocr() -> str:
-    from pdfstruct import extract
-    cfg = extract.load_config(None)
-    if extract.OcrClient(cfg["ocr"], Path("unused.log")).resolve_python() is None:
-        return "SKIPPED (no OCR python; see config ocr.python)"
-    sh(sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
-       "tests/test_pipeline.py::test_scan_pdf_uses_ocr",
-       "tests/test_export.py::test_ocr_pdf_exports_confidence", cwd=ROOT)
-    return "PASS"
+def step_ocr(venv: Path, work: Path) -> str:
+    """OCR with the wheel installed in the clean venv (never an external OCR Python).
+
+    PASS    a generated scan PDF came back with method "ocr"
+    SKIPPED this platform has no paddlepaddle wheel (reported, not hidden)
+    FAIL    anything else, including OCR packages missing on a supported platform
+    """
+    from pdfstruct import ocr
+    probe = sh(venv_python(venv), "-c",
+               "from pdfstruct import ocr; print(int(ocr.available()), int(ocr.platform_supported()))")
+    installed, supported = (int(v) for v in probe.split()[-2:])
+    if not installed:
+        if not supported:
+            return "SKIPPED (unsupported platform: no paddlepaddle wheel)"
+        raise StepFailed("OCR packages missing in the clean venv although the platform is "
+                         "supported; check the dependency markers in pyproject.toml")
+    sys.path.insert(0, str(ROOT / "tests"))
+    from conftest import make_scan_pdf  # noqa: E402
+    pdf = make_scan_pdf(work / "scan.pdf")
+    out = sh(script_path(venv, "pdfjson"), pdf, cwd=work, timeout=1800)
+    if "FAILED: 0" not in out or "OCR FILES: 1" not in out:
+        raise StepFailed(out)
+    raw = json.loads((work / "output" / "scan.raw.json").read_text(encoding="utf-8"))
+    engine = raw.get("ocr_engine") or {}
+    if raw.get("extraction_method") != "ocr" or not engine.get("engine", "").startswith("paddleocr"):
+        raise StepFailed(f"unexpected raw.json header: {dict((k, raw.get(k)) for k in ('extraction_method', 'ocr_engine', 'warnings'))}")
+    if "python" in engine:
+        raise StepFailed(f"OCR ran through an external interpreter: {engine}")
+    text = raw["pages"][0]["text"]
+    if "Hallo" not in text:
+        raise StepFailed("OCR text does not contain the fixture words: " + text[:200])
+    return f"PASS ({engine.get('device')}, {Path(engine.get('model_cache_dir', '')).name})"
 
 
 # ---------------------------------------------------------------- runner
@@ -225,7 +248,8 @@ def main() -> int:
         else:
             report("WHEEL INSTALL", "SKIPPED (no wheel)")
         for label, step in (("CLI", lambda: step_cli(venv, version)),
-                            ("NATIVE", lambda: step_native(venv, work) or "PASS")):
+                            ("NATIVE", lambda: step_native(venv, work) or "PASS"),
+                            ("OCR", lambda: step_ocr(venv, work))):
             if not installed:
                 report(label, "SKIPPED (wheel not installed)")
                 continue
@@ -234,10 +258,6 @@ def main() -> int:
             except Exception as exc:
                 fail(label, exc)
 
-    try:
-        report("OCR", step_ocr())
-    except Exception as exc:
-        fail("OCR", exc)
 
     print(f"\nRESULT: {'FAIL' if failed else 'PASS'}  ({time.time() - started:.0f}s)")
     for label, text in details:

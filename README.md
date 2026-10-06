@@ -28,7 +28,23 @@ pdfxlsx belge.pdf
 ```
 
 Aliases: `pdfjson`, `pdfhtml`, `pdftxt`, `pdfmd`, `pdfcsv`, `pdfxlsx`, `pdfdocx`, `pdfjsonl`,
-`pdfsqlite`. OCR needs a separate PaddleOCR environment, see [OCR ortamı](#ocr-ortamı).
+`pdfsqlite`.
+
+PDFStruct automatically uses native PDF text when available and OCR when needed: each page
+gets a text-layer quality score, and pages that fail it (scans, photos) go through OCR. You
+never have to choose. `--force-ocr` runs OCR on every page, `--native-only` never runs it.
+
+OCR runs inside the same Python environment (PaddleOCR, CPU by default; no CUDA, no GPU
+and no separate installation needed). The OCR packages are installed together with
+PDFStruct on platforms that have official PaddlePaddle CPU wheels: Windows x86_64,
+Linux x86_64 and macOS Apple Silicon, with Python 3.9–3.13. On the first OCR run the two
+models (about 70 MB) are downloaded once to `~/.pdfstruct/models` and reused afterwards;
+you will see `Preparing OCR models for first use...`. Elsewhere PDFStruct still installs and
+extracts native text; a page that would need OCR is reported as `OCR support is not
+available on this platform` and listed under `REVIEW_PAGES`.
+
+Verified so far: Windows 11 x86_64 with Python 3.13 (native extraction and CPU OCR).
+Other platforms are covered by the published wheels but have not been tested yet.
 
 ## Project Principles
 
@@ -165,7 +181,6 @@ bir metin katmanı eklenmişse skor bunu yakalayamaz. Şüphe varsa `--force-ocr
 | `<ad>.raw.json` | Tam ham veri: sayfalar, metin, bloklar, bbox | **Hayır** (yalnız tek tek sayfa) |
 | `<ad>.summary.json` | Sayfa başına yöntem, skor, uyarı; metin yok | Evet |
 | `_run_summary.json` | Çalıştırmanın toplamı, belge başına bir satır | Evet |
-| `_ocr_worker.log` | OCR motorunun kendi logu (yalnız OCR çalıştıysa) | Hata varsa |
 | `<ad>.parsed.json` | `--parser` çıktısı | Parser'a bağlı |
 
 ### raw.json biçimi (özet)
@@ -299,16 +314,26 @@ işlenmez. Örnek: [examples/example_parser.py](examples/example_parser.py).
 
 ## OCR ortamı
 
-Bu araç ikinci bir OCR stack **kurmaz**. Mevcut `C:\HermesOCR` venv'ini (PaddleOCR 3.7 +
-paddlepaddle-gpu) **alt süreç** olarak çağırır: `ocr_worker.py` o Python ile çalışır, modeller
-`C:\HermesOCR\paddlex_cache` içinden okunur. HermesOCR kodu değiştirilmez.
+OCR, PDFStruct'ın kendi Python ortamında çalışır: `paddleocr` + `paddlepaddle` (CPU) paketleri
+desteklenen platformlarda `pip install` ile birlikte gelir; ayrı bir OCR kurulumu, başka bir
+Python yolu veya CUDA gerekmez.
 
-- GPU varsa `gpu:0`, yoksa CPU (`ocr.device: "auto"`).
-- Varsayılan tanıma modeli `latin_PP-OCRv5_mobile_rec` (Almanca/Türkçe/İngilizce dahil Latin
-  alfabeleri). Başka alfabe için ayar dosyası → `ocr.rec_model`.
-- OCR ortamı bulunamazsa araç çökmez: native metin korunur, sayfalar `review_pages`'e yazılır,
-  terminalde `OCR_UNAVAILABLE` satırı çıkar.
-- Başka bir makinede: PaddleOCR 3.x kurulu herhangi bir Python'un yolunu `ocr.python`'a yaz.
+- Native sayfalarda OCR kütüphanesi **hiç import edilmez**; yalnız OCR gereken ilk sayfada
+  yüklenir (başlangıç süresi ve RAM native kullanımda değişmez).
+- Modeller ilk OCR'da `~/.pdfstruct/models` altına indirilir (`ocr.model_cache_dir` ile
+  değiştirilebilir), sonraki çalıştırmalarda önbellekten okunur. Model dosyaları pakette yoktur.
+- Varsayılan modeller: `PP-OCRv5_mobile_det` + `latin_PP-OCRv5_mobile_rec` (Almanca/Türkçe/
+  İngilizce dahil Latin alfabeleri; CPU'da sayfa başına yaklaşık 1–2 s). Başka alfabe için
+  ayar dosyası → `ocr.rec_model`; daha güçlü algılama için `ocr.det_model: "PP-OCRv6_medium_det"`.
+- Cihaz: `ocr.device: "auto"` → CPU. GPU yalnız CUDA'lı bir paddlepaddle kurulumu ve bir GPU
+  görüldüğünde kullanılır; bu aşamada desteklenen/hazır bir kurulum yolu değildir.
+- `ocr.enable_mkldnn` varsayılan `false`: güncel paddlepaddle 3.x CPU derlemelerinde oneDNN
+  yolu hata veriyor.
+- OCR paketleri yoksa araç çökmez: native metin korunur, sayfalar `review_pages`'e yazılır,
+  terminalde `OCR_UNAVAILABLE` satırı çıkar. Marker'ların kapsamadığı bir platformda denemek
+  için: `pip install "pdfstruct[ocr]"`.
+- Eski ayar anahtarları `ocr.python` ve `ocr.python_candidates` artık kullanılmaz; ayar
+  dosyasında dursalar bile yok sayılır.
 
 ## Kurulum (yeniden kurmak gerekirse)
 
@@ -345,7 +370,7 @@ PDFStruct\
 │   ├── cli.py              pdfstruct + alias komutları, girdi/çıktı yolu çözümleme
 │   ├── extract.py          native çıkarım, kalite skoru, OCR istemcisi, parser hook
 │   ├── export.py           raw.json → html/txt/md/csv/xlsx/docx/jsonl/sqlite
-│   └── ocr_worker.py       OCR alt süreci (PaddleOCR'lı Python ile çalışır)
+│   └── ocr.py              OCR backend (PaddleOCR, aynı süreçte, tembel yükleme)
 ├── pdfstruct.cmd, pdfjson.cmd … pdfsqlite.cmd   venv'i kendisi seçen Windows komutları
 ├── pdfexport.cmd, pdf2json.cmd                ortak başlatıcı / alt seviye komut
 ├── scripts\ci_local.py, ci-local.cmd         tek komutluk local CI

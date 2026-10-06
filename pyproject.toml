@@ -8,7 +8,7 @@ dynamic = ["version"]
 description = "Convert PDFs locally with native text extraction or OCR and export structured content to JSON, HTML, TXT, Markdown, CSV, XLSX, DOCX, JSONL and SQLite."
 readme = "README.md"
 license = "MIT"
-license-files = ["LICENSE"]
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
 requires-python = ">=3.10"
 authors = [{ name = "KelesogluMustafa" }]
 keywords = ["pdf", "ocr", "extraction", "json"]
@@ -23,9 +23,16 @@ dependencies = [
     "Pillow>=10",
     "openpyxl>=3.1",     # xlsx export
     "python-docx>=1.1",  # docx export
+    # OCR backend, installed automatically where paddlepaddle publishes CPU wheels
+    # (Windows x86_64, Linux x86_64, macOS arm64; Python 3.9-3.13). Elsewhere native
+    # extraction still works and OCR reports that it is unavailable.
+    "paddleocr>=3.7,<4; python_version >= '3.9' and python_version < '3.14' and ((sys_platform == 'win32' and platform_machine == 'AMD64') or (sys_platform == 'linux' and platform_machine == 'x86_64') or (sys_platform == 'darwin' and platform_machine == 'arm64'))",
+    "paddlepaddle>=3.0,<4; python_version >= '3.9' and python_version < '3.14' and ((sys_platform == 'win32' and platform_machine == 'AMD64') or (sys_platform == 'linux' and platform_machine == 'x86_64') or (sys_platform == 'darwin' and platform_machine == 'arm64'))",
 ]
 
 [project.optional-dependencies]
+# Force the OCR backend on a platform the markers above do not cover.
+ocr = ["paddleocr>=3.7,<4", "paddlepaddle>=3.0,<4"]
 dev = ["pytest", "reportlab", "jsonschema", "build"]
 
 [project.scripts]
@@ -48,7 +55,7 @@ packages = ["src/pdfstruct"]
 
 [tool.hatch.build.targets.sdist]
 include = ["src", "tests", "schemas", "examples", "config.example.json",
-           "README.md", "CHANGELOG.md", "LICENSE", "CLAUDE_RULES.md"]
+           "README.md", "CHANGELOG.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "CLAUDE_RULES.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -21,7 +21,7 @@ def test_import_and_single_version():
     assert metadata.version("pdfstruct") == pdfstruct.__version__  # package is installed
     assert extract.TOOL_VERSION == pdfstruct.__version__
     assert extract.TOOL_NAME == "pdfstruct"
-    assert (Path(extract.__file__).parent / "ocr_worker.py").is_file()
+    assert (Path(extract.__file__).parent / "ocr.py").is_file()
 
 
 def test_console_entry_points_declared():

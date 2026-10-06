@@ -4,6 +4,6 @@
 
 - Initial packaged version of PDFStruct
 - Native PDF extraction
-- Automatic OCR fallback
+- Automatic OCR fallback (PaddleOCR, in-process, CPU by default, models cached per user)
 - Multi-format exports
 - Batch/file/folder CLI support

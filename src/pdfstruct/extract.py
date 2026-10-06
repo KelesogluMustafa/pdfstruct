@@ -2,7 +2,7 @@
 """pdfstruct.extract - general-purpose local PDF -> raw JSON pipeline.
 
 Deterministic bulk work only: native text extraction (pypdfium2) with an
-automatic, per-page OCR fallback (PaddleOCR in a separate Python process).
+automatic, per-page OCR fallback (PaddleOCR, loaded lazily in this process).
 No semantic parsing happens here; project-specific parsers plug in via --parser.
 
 Usage:
@@ -26,7 +26,8 @@ from pathlib import Path
 import pypdfium2 as pdfium
 import pypdfium2.raw as pdfium_c
 
-from . import __version__
+from . import __version__, ocr
+from .ocr import OcrUnavailable  # noqa: F401  (re-exported for callers and tests)
 
 TOOL_NAME = "pdfstruct"
 TOOL_VERSION = __version__
@@ -47,15 +48,12 @@ DEFAULT_CONFIG = {
         "ocr_review_confidence": 0.60,
     },
     "ocr": {
-        # "auto": first existing entry of python_candidates, else this interpreter
-        # if it can import paddleocr. Or an explicit path to a python.exe.
-        "python": "auto",
-        "python_candidates": [r"C:\HermesOCR\Scripts\python.exe"],
-        # Model cache to reuse (read by PaddleX). Empty string = PaddleX default.
-        "model_cache_dir": r"C:\HermesOCR\paddlex_cache",
-        "det_model": "PP-OCRv6_medium_det",
+        # Where PaddleX downloads and keeps the models. Empty = ~/.pdfstruct/models
+        "model_cache_dir": "",
+        "det_model": "PP-OCRv5_mobile_det",
         "rec_model": "latin_PP-OCRv5_mobile_rec",
-        "device": "auto",  # auto | cpu | gpu:0
+        "device": "auto",  # auto (GPU when a CUDA build of paddlepaddle sees one) | cpu | gpu:0
+        "enable_mkldnn": False,
         "dpi": 200,
         "max_side_px": 4000,
     },
@@ -83,6 +81,9 @@ def load_config(path: Path | None) -> dict:
                 cfg[section].update(values)
             else:
                 cfg[section] = values
+        # older configs pointed at a separate OCR Python; OCR now runs in-process
+        for key in ocr.LEGACY_KEYS:
+            cfg["ocr"].pop(key, None)
     elif path is not None:
         raise FileNotFoundError(f"config not found: {path}")
     return cfg
@@ -232,103 +233,9 @@ def score_text_layer(native: dict, qcfg: dict) -> dict:
     return quality
 
 
-# ---------------------------------------------------------------- OCR client
+# ---------------------------------------------------------------- OCR
 
-class OcrUnavailable(RuntimeError):
-    pass
-
-
-class OcrClient:
-    """Lazy handle on ocr_worker.py running in the OCR-capable Python."""
-
-    def __init__(self, cfg: dict, log_path: Path):
-        self.cfg = cfg
-        self.log_path = log_path
-        self.proc = None
-        self.info = None
-        self.failed_reason = None
-        self._log = None
-
-    def resolve_python(self) -> str | None:
-        setting = self.cfg.get("python", "auto")
-        if setting and setting != "auto":
-            return setting if Path(setting).is_file() else None
-        for candidate in self.cfg.get("python_candidates", []):
-            if Path(candidate).is_file():
-                return candidate
-        if importlib.util.find_spec("paddleocr") is not None:
-            return sys.executable
-        return None
-
-    def _start(self) -> None:
-        python = self.resolve_python()
-        if python is None:
-            raise OcrUnavailable("no Python with paddleocr found (see config ocr.python)")
-        env = dict(os.environ)
-        env["PYTHONIOENCODING"] = "utf-8"
-        env.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
-        cache = self.cfg.get("model_cache_dir")
-        if cache and Path(cache).is_dir():
-            env["PADDLE_PDX_CACHE_HOME"] = cache
-        self.log_path.parent.mkdir(parents=True, exist_ok=True)
-        self._log = self.log_path.open("w", encoding="utf-8", errors="replace")
-        self.proc = subprocess.Popen(
-            [python, str(PACKAGE_DIR / "ocr_worker.py"),
-             "--det-model", self.cfg["det_model"],
-             "--rec-model", self.cfg["rec_model"],
-             "--device", self.cfg["device"]],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self._log,
-            env=env, encoding="utf-8",
-        )
-        ready = self._read()
-        if not ready.get("ready"):
-            raise OcrUnavailable(ready.get("error", "OCR worker failed to start"))
-        self.info = {"engine": ready.get("engine"), "device": ready.get("device"),
-                     "python": python, "det_model": self.cfg["det_model"],
-                     "rec_model": self.cfg["rec_model"]}
-
-    def _read(self) -> dict:
-        line = self.proc.stdout.readline()
-        if not line:
-            raise OcrUnavailable(f"OCR worker exited unexpectedly (see {self.log_path})")
-        return json.loads(line)
-
-    def ocr_image(self, image_path: Path) -> list[dict]:
-        if self.failed_reason:
-            raise OcrUnavailable(self.failed_reason)
-        if self.proc is None:
-            try:
-                self._start()
-            except Exception as exc:
-                self.failed_reason = str(exc)
-                self.close()
-                raise OcrUnavailable(self.failed_reason) from exc
-        try:
-            self.proc.stdin.write(json.dumps({"image": str(image_path)}) + "\n")
-            self.proc.stdin.flush()
-            reply = self._read()
-        except (OSError, OcrUnavailable) as exc:
-            self.failed_reason = str(exc)
-            self.close()
-            raise OcrUnavailable(self.failed_reason) from exc
-        if not reply.get("ok"):
-            raise RuntimeError(reply.get("error", "OCR failed"))
-        return reply["lines"]
-
-    def close(self) -> None:
-        if self.proc is not None:
-            try:
-                self.proc.stdin.close()
-                self.proc.wait(timeout=30)
-            except Exception:
-                self.proc.kill()
-            self.proc = None
-        if self._log is not None:
-            self._log.close()
-            self._log = None
-
-
-def ocr_page(page, native: dict, client: OcrClient, ocfg: dict, tmp_dir: Path) -> dict:
+def ocr_page(page, native: dict, client: ocr.OcrEngine, ocfg: dict, tmp_dir: Path) -> dict:
     scale = ocfg["dpi"] / 72.0
     longest = max(native["width"], native["height"]) * scale
     if longest > ocfg["max_side_px"]:
@@ -362,7 +269,7 @@ def ocr_page(page, native: dict, client: OcrClient, ocfg: dict, tmp_dir: Path) -
 
 # ---------------------------------------------------------------- one document
 
-def process_page(page, number: int, mode: str, cfg: dict, client: OcrClient, tmp_dir: Path) -> dict:
+def process_page(page, number: int, mode: str, cfg: dict, client: ocr.OcrEngine, tmp_dir: Path) -> dict:
     qcfg = cfg["quality"]
     native = extract_native(page)
     quality = score_text_layer(native, qcfg)
@@ -423,7 +330,7 @@ def process_page(page, number: int, mode: str, cfg: dict, client: OcrClient, tmp
 
 
 def process_pdf(pdf_path: Path, raw_path: Path, summary_path: Path, mode: str,
-                cfg: dict, client: OcrClient, fingerprint: str, source: dict) -> dict:
+                cfg: dict, client: ocr.OcrEngine, fingerprint: str, source: dict) -> dict:
     pages_tmp = raw_path.with_name(raw_path.name + ".pages.tmp")
     raw_tmp = raw_path.with_name(raw_path.name + ".tmp")
     page_summaries, doc_warnings = [], []
@@ -574,7 +481,7 @@ def main(argv: list[str] | None = None) -> int:
     mode = "force-ocr" if args.force_ocr else "native-only" if args.native_only else "auto"
     pdfs = collect_pdfs(input_path)
     out_dir.mkdir(parents=True, exist_ok=True)
-    client = OcrClient(cfg["ocr"], out_dir / "_ocr_worker.log")
+    client = ocr.OcrEngine(cfg["ocr"])
     options_key = json.dumps({"mode": mode, "quality": cfg["quality"], "ocr": cfg["ocr"],
                               "tool": TOOL_VERSION}, sort_keys=True)
 
