@@ -213,6 +213,9 @@ def main(argv: list[str] | None = None, cwd: Path | None = None, **ui) -> int:
     terminal: interactive menus. Without --format and without a terminal: usage."""
     from . import interactive
 
+    for stream in (sys.stdout, sys.stderr):  # before any help/usage text (Windows code pages)
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     pre = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
     pre.add_argument("--format", action="append", default=[],
                      help="repeat or comma-separate for several: --format json --format xlsx")
@@ -228,9 +231,6 @@ def main(argv: list[str] | None = None, cwd: Path | None = None, **ui) -> int:
         return run(known.format[0], rest, cwd, prog="pdfstruct")
 
     args = build_arg_parser("json", "pdfstruct").parse_args(rest)
-    for stream in (sys.stdout, sys.stderr):
-        if hasattr(stream, "reconfigure"):
-            stream.reconfigure(encoding="utf-8", errors="replace")
     target = args.path or args.input_option
     out_dir = resolve_output(args.output, None, cwd) if args.output else None
 
