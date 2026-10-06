@@ -7,12 +7,11 @@
     "ocr_review_confidence": 0.60
   },
   "ocr": {
-    "python": "auto",
-    "python_candidates": ["C:\\HermesOCR\\Scripts\\python.exe"],
-    "model_cache_dir": "C:\\HermesOCR\\paddlex_cache",
-    "det_model": "PP-OCRv6_medium_det",
+    "model_cache_dir": "",
+    "det_model": "PP-OCRv5_mobile_det",
     "rec_model": "latin_PP-OCRv5_mobile_rec",
     "device": "auto",
+    "enable_mkldnn": false,
     "dpi": 200,
     "max_side_px": 4000
   }

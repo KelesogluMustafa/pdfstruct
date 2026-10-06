@@ -1,4 +1,3 @@
 @echo off
-rem pdfjson [file.pdf ^| folder] [options] - no argument: all PDFs in this folder (else .\pdf).
-rem Output: "output" next to the PDFs. Options pass through (--force-ocr, --output, --parser ...).
-"%~dp0.venv\Scripts\python.exe" "%~dp0pdf_cli.py" json %*
+rem Legacy wrapper (works without activating the venv). Same as: pdfstruct --format json
+"%~dp0.venv\Scripts\python.exe" -m pdfstruct --format json %*

@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Runner architecture
+        shell: bash
+        run: python -c "import platform, sys; print(platform.system(), platform.machine(), sys.version)"
+      - name: Install project (OCR dependencies come via environment markers where available)
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+      - name: OCR availability
+        shell: bash
+        run: python -c "from pdfstruct import ocr; print('OCR installed:', ocr.available(), '| platform supported:', ocr.platform_supported())"
+      - name: Tests
+        shell: bash
+        run: python -m pytest -q -rs
+      - name: Build wheel + sdist
+        shell: bash
+        run: |
+          python -m build
+          ls -la dist
+      - name: CLI smoke (non-interactive)
+        shell: bash
+        run: |
+          pdfstruct --version
+          pdfjson --help > /dev/null
+          pdfxlsx --help > /dev/null
+          # bare pdfstruct without a terminal must not hang and must exit 2
+          set +e
+          pdfstruct < /dev/null > bare.txt; code=$?
+          set -e
+          test "$code" -eq 2 && grep -q -- "--format" bare.txt
+      - name: Native smoke
+        shell: bash
+        run: |
+          mkdir smoke && cd smoke
+          python -c "import sys; sys.path.insert(0, '../tests'); from conftest import make_text_pdf; from pathlib import Path; make_text_pdf(Path('belge (ä).pdf'), pages=2)"
+          pdfstruct "belge (ä).pdf" --format json,txt,xlsx
+          test -f "output/belge (ä).raw.json" && test -f "output/belge (ä).txt" && test -f "output/belge (ä).xlsx"
+      - name: OCR smoke (reports SKIPPED where paddlepaddle has no wheel)
+        shell: bash
+        run: |
+          if python -c "from pdfstruct import ocr; raise SystemExit(0 if ocr.available() else 1)"; then
+            mkdir ocrsmoke && cd ocrsmoke
+            python -c "import sys; sys.path.insert(0, '../tests'); from conftest import make_scan_pdf; from pathlib import Path; make_scan_pdf(Path('scan.pdf'))"
+            pdfjson scan.pdf
+            python -c "import json; r=json.load(open('output/scan.raw.json', encoding='utf-8')); print('OCR:', r['extraction_method'], r['ocr_engine']); assert r['extraction_method']=='ocr' and 'Hallo' in r['pages'][0]['text']"
+            echo "OCR: PASS"
+          else
+            python -c "from pdfstruct import ocr; print('OCR: SKIPPED -', ocr.unavailable_reason())"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: matrix.os == 'ubuntu-latest'
+        with:
+          name: dist
+          path: dist/

@@ -170,7 +170,7 @@ def test_parser_hook(tmp_path, run_tool):
 
 
 def test_broken_unicode_lowers_score():
-    import pdf_to_json
+    from pdfstruct import extract as pdf_to_json
     qcfg = pdf_to_json.DEFAULT_CONFIG["quality"]
     base = {"width": 595, "height": 842, "object_count": 3, "image_coverage": 0.0,
             "blocks": [{"text": "x", "bbox": [10, 10, 100, 30]}]}
@@ -184,7 +184,7 @@ def test_broken_unicode_lowers_score():
 
 def test_cli_subprocess_missing_input(tmp_path):
     result = subprocess.run(
-        [sys.executable, str(TOOL_DIR / "pdf_to_json.py"),
+        [sys.executable, "-m", "pdfstruct.extract",
          "--input", str(tmp_path / "nope"), "--output", str(tmp_path / "out")],
         capture_output=True, text=True)
     assert result.returncode == 2 and "ERROR" in result.stdout
