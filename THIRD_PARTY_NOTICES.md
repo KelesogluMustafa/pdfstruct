@@ -17,6 +17,8 @@ official model repository.
 | paddlepaddle | OCR inference runtime (CPU build) | Apache-2.0 |
 | paddlex | model management used by paddleocr | Apache-2.0 |
 | PP-OCRv5 models (PaddleOCR) | text detection and recognition | Apache-2.0 |
+| PySide6-Essentials / Qt 6 (optional extra `gui`) | desktop window | LGPL-3.0-only (also GPL) |
+| mcp (optional extra `mcp`) | Model Context Protocol server SDK | MIT |
 
 Each package keeps its own license text inside its distribution.
 
@@ -27,3 +29,10 @@ distributed inside the `reportlab` package (`reportlab/fonts`, with their licens
 `bitstream-vera-license.txt`). PDFStruct does not ship font files of its own. The Vera license
 permits embedding and redistribution; anyone who repackages PDFStruct together with reportlab
 (for example a frozen desktop build) must keep that license file in the package.
+
+## Desktop window (Qt for Python)
+
+The optional desktop window uses PySide6 / Qt 6 under the LGPL-3.0. PDFStruct only imports it as
+an installed dependency. Anyone who distributes a bundled build (for example a frozen
+executable) must meet the LGPL terms: include the LGPL text and the Qt notices, state that Qt
+is used, and keep Qt replaceable (dynamic linking, as PySide6 wheels already do).

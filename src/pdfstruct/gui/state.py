@@ -4,6 +4,7 @@ Kept free of PySide6 so it can be tested everywhere and so importing it never lo
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from .. import inputs, service
@@ -53,7 +54,7 @@ class Queue:
 
     @staticmethod
     def _key(path: Path) -> str:
-        return str(Path(path).resolve()).casefold()
+        return os.path.normcase(str(Path(path).resolve()))  # case-insensitive on Windows only
 
     def remove(self, indexes) -> None:
         for index in sorted(set(indexes), reverse=True):

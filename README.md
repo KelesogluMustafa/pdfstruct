@@ -1,52 +1,148 @@
 # PDFStruct
 
-PDFStruct converts PDFs locally using native text extraction or OCR and exports
-structured content to JSON, HTML, TXT, Markdown, CSV, XLSX, DOCX, JSONL and SQLite.
+PDFStruct converts documents locally: PDF, DOCX, TXT, Markdown, HTML and images go in;
+JSON, HTML, TXT, Markdown, CSV, XLSX, DOCX, JSONL, SQLite and PDF come out. It reads native
+text when it exists and uses OCR when a page needs it. Nothing is uploaded.
 
-## Easy usage
+One engine, four ways to use it:
 
-Run `pdfstruct` inside a folder containing PDFs:
-
-```
-pdfstruct
-```
-
-1. Select one or more PDF files.
-2. Select one or more output formats.
-3. PDFStruct converts them into `output/`.
-
-The menus use the arrow keys, `SPACE` to select, `A` for all, `ENTER` to continue,
-`B` to go back and `Q` to quit.
-
-```
-pdfstruct document.pdf      choose the output formats for that file
-pdfstruct "C:\Documents"    pick PDFs from that folder, then formats
-```
+| | Start with | For |
+|---|---|---|
+| Desktop window | `pdfstruct-gui` | drag files in, tick formats, Convert |
+| Terminal menu | `pdfstruct` | pick files and formats with the keyboard |
+| Scripts | `pdfstruct file --format xlsx`, `pdfjson file` | automation, no prompts |
+| Claude | local MCP server + Agent Skill | conversions without the document entering the chat |
 
 ## Install
 
-Local development install (not published on PyPI yet), from the repository folder:
+Not on PyPI yet. Install from a checkout or from the wheel of a
+[GitHub release](https://github.com/KelesogluMustafa/pdfstruct/releases/latest).
+
+**Windows, the easy way.** In the repository folder, double-click `setup-windows.cmd` (or run it
+in a terminal). It creates `.venv` inside the folder, installs PDFStruct with the desktop window
+and the MCP server, and opens the window. Running it again only updates the installation. It
+needs Python 3.10–3.13 from python.org; it does not touch the system Python packages.
+
+**Any platform, with pip** (Windows, macOS, Linux):
 
 ```
-pip install -e .
+python -m venv .venv
+.venv\Scripts\activate            (macOS/Linux: source .venv/bin/activate)
+pip install -e ".[gui,mcp]"       (from a release: pip install "pdfstruct-<version>-py3-none-any.whl[gui,mcp]")
 ```
 
-## Scripts and automation (non-interactive)
+`[gui]` adds the desktop window (PySide6), `[mcp]` the MCP server. Leave them out for the
+command line only. The OCR packages are installed automatically on Windows x86_64,
+Linux x86_64 and macOS Apple Silicon with Python 3.9–3.13; the first OCR run downloads the two
+models once (about 70 MB) to `~/.pdfstruct/models`.
+
+## Formats
+
+| Input | Read as |
+|---|---|
+| PDF | native text per page; OCR only for pages without a usable text layer |
+| JPG/JPEG, PNG, TIFF/TIF, BMP, WebP | OCR (multi-page TIFF: one page per frame, EXIF orientation applied) |
+| DOCX | paragraphs, headings, list items, simple tables, in document order |
+| TXT, Markdown (`.md`, `.markdown`) | text; Markdown headings, lists and code blocks |
+| HTML (`.html`, `.htm`) | visible text of the local file; no scripts, no network |
+
+Outputs: `json` (the raw document), `html`, `txt`, `md`, `csv`, `xlsx`, `docx`, `jsonl`,
+`sqlite`, `pdf`. Every input is read once; all formats you ask for come from that one result.
+
+Files go to an `output` folder next to each input (or to `--output`). `report.pdf` writes
+`report.<ext>` as before; every other input keeps its extension (`report.docx` writes
+`report.docx.<ext>`), so files with the same name never overwrite each other. A source file is
+never overwritten.
+
+### What the formats do not do
+
+- `csv` and `xlsx` list text blocks, one per row. They are not reconstructed tables, also when
+  the source is a DOCX or HTML table.
+- `pdf` from DOCX, TXT, Markdown or HTML is a readable re-flow on A4 (headings, paragraphs,
+  lists, simple tables), not the layout of the source. Pixel-faithful DOCX to PDF is not a goal.
+- `pdf` from an image is the picture fitted to the page with the recognised text placed
+  invisibly on top, so it can be searched. A PDF input is not written again as PDF
+  (reported as `already_pdf`).
+- Image to DOCX/Markdown/HTML contains the recognised text only.
+- Same-format round trips (DOCX to DOCX, Markdown to Markdown, ...) keep the text and lose the
+  styling; PDFStruct says so in a warning.
+- DOCX has no stored page breaks: it is one logical page, and images, headers/footers and
+  text boxes are not read. Markdown tables and inline markup stay literal text.
+- PDF text uses the Bitstream Vera fonts (Latin incl. Turkish and German). Other scripts are
+  reported as missing glyphs.
+- Not supported: CSV/XLSX input, legacy `.doc`, RTF, ODT, EPUB, PowerPoint, HEIC.
+
+## Desktop window
 
 ```
-pdfstruct document.pdf --format xlsx
-pdfstruct document.pdf --format json,xlsx,docx
-pdfxlsx document.pdf
-pdfjson                       all PDFs in the current folder
-pdfjson "C:\Documents"        all PDFs in that folder
+pdfstruct-gui                     (Windows without activating anything: setup-windows.cmd)
+pdfstruct-gui report.pdf scans    files or folders can be passed
 ```
 
-`--format` takes `json` (default), `html`, `txt`, `md`, `csv`, `xlsx`, `docx`, `jsonl` or
-`sqlite`; repeat it or comma-separate for several. Each format also has an alias
-(`pdfjson`, `pdfhtml`, `pdftxt`, `pdfmd`, `pdfcsv`, `pdfxlsx`, `pdfdocx`, `pdfjsonl`,
-`pdfsqlite`) that never shows a menu. Without a terminal (CI, pipes), a bare `pdfstruct`
-prints usage instead of waiting for input. Every PDF is extracted once and all requested
-formats are produced from the same raw JSON.
+Drop files or folders on the window or use **Select Files**, tick one or more of the ten
+formats, optionally choose an output folder, press **Convert**. The window shows the current
+file and step (reading, OCR page, writing), lists the result per file with its warnings, and
+**Open Output Folder** opens the result. **Cancel** stops after the step that is running.
+OCR is loaded only when a file needs it, never when the window opens.
+
+## Terminal
+
+```
+pdfstruct                                  menu: pick files here, then formats
+pdfstruct report.docx                      menu: pick formats for that file
+pdfstruct report.docx --format pdf         one format
+pdfstruct scan.png --format txt,docx,pdf   several formats, one OCR pass
+pdfstruct "C:\Documents" --format json --all-types    every supported file in the folder
+pdfxlsx report.pdf                         aliases: pdfjson pdfhtml pdftxt pdfmd pdfcsv pdfxlsx
+                                           pdfdocx pdfjsonl pdfsqlite
+pdfjson                                    all PDFs in the current folder
+```
+
+In the menu: arrow keys move, `SPACE` selects, `A` selects all, `ENTER` continues, `B` goes
+back, `Q` quits. With `--format` (or an alias) nothing is asked. A folder given to a
+non-interactive command takes its PDFs only, as before; add `--all-types` for every supported
+type. `--force-ocr` runs OCR on every PDF page, `--native-only` never runs it; on inputs where
+these make no sense PDFStruct says so instead of ignoring them. Without a terminal (CI, pipes)
+a bare `pdfstruct` prints usage instead of waiting.
+
+## Claude: MCP server and Agent Skill
+
+The MCP server lets Claude start conversions on your computer and get back **status and file
+names only**. The document does not enter the conversation unless you ask Claude to read it,
+and then only in small pieces.
+
+Tools: `convert(paths, formats, output_dir?, force_ocr?)`, `inspect(path)`,
+`supported_formats()`, `search(path_or_output, query)`, `read_excerpt(path_or_output, page?,
+max_chars?)` (at most 2000 characters per call, returned as untrusted document text).
+
+Claude Code:
+
+```
+claude mcp add --scope user pdfstruct -- "<path to>\.venv\Scripts\pdfstruct-mcp.exe"
+```
+
+(macOS/Linux: `.venv/bin/pdfstruct-mcp`.) Claude Desktop: add the same command under
+`mcpServers` in `claude_desktop_config.json`:
+
+```json
+{ "mcpServers": { "pdfstruct": { "command": "<path to>\\.venv\\Scripts\\pdfstruct-mcp.exe" } } }
+```
+
+The Agent Skill teaches Claude to use the server (or the command line when the server is not
+connected) and not to read documents into the chat for a conversion. It contains instructions
+only. Build `dist/pdfstruct-skill.zip` with `python scripts/build_skill_zip.py`, or take it
+from a release, then either upload the ZIP in Claude's skill settings or unpack it to
+`~/.claude/skills/pdfstruct/` for Claude Code.
+
+## Platforms
+
+Tested by the automated suite on GitHub Actions with Python 3.13: Windows x86_64,
+Linux x86_64 and macOS Apple Silicon (extraction, OCR, all formats; the desktop window is
+checked there without a display). The window was opened and used by hand on Windows 11 only.
+On macOS and Linux the window is expected to work after `pip install ".[gui]"` but has not
+been tried on a real desktop: treat it as unverified. There is no installer, `.app` or DMG yet.
+macOS Intel, Linux ARM64 and Windows ARM install and read native text; OCR is not available
+there because PaddlePaddle publishes no wheels for them.
 
 ## Project Principles
 
@@ -57,17 +153,23 @@ Voluntary donations may support future development, but never unlock features.
 ## Development
 
 ```
-pip install -e ".[dev]"
+pip install -e ".[dev,gui,mcp]"
 python scripts/ci_local.py
 ```
 
 `scripts/ci_local.py` (Windows shortcut: `ci-local`) runs the whole local CI in one go:
 import and version check, test suite, wheel + sdist build and validation, a clean temporary
-venv with the built wheel, `--help` / `--version` for all 10 console scripts, a small native
-end-to-end run, and a targeted OCR check that reports `PASS`, `SKIPPED` (no OCR environment)
-or `FAIL`. Output is one line per step; full logs appear only for failing steps.
+venv with the built wheel and its extras, every console script, native and OCR conversions,
+the desktop window without a display, the MCP server over stdio and the skill archive. Output
+is one line per step; full logs appear only for failing steps. The architecture and the rules
+for changes are in [docs/MASTER_ARCHITECTURE.md](docs/MASTER_ARCHITECTURE.md).
 
 ---
+
+## PDF extraction reference (Turkish)
+
+The sections below are the detailed reference for the PDF pipeline (quality score, raw JSON,
+options, project parsers). They predate the other input types and describe PDF inputs.
 
 Genel amaçlı, projeden bağımsız, tamamen local **PDF → ham JSON** aracı.
 
@@ -235,6 +337,7 @@ girdi kurallarını kullanır (dosya, klasör veya argümansız).
 | `pdfdocx` | `<ad>.docx` | Sayfa sırasıyla okunabilir Word belgesi; her PDF sayfası yeni sayfada |
 | `pdfjsonl` | `<ad>.jsonl` | Blok başına bir JSON satırı (`bbox` dizi olarak) |
 | `pdfsqlite` | `<ad>.sqlite` | `documents`, `pages`, `blocks` tabloları |
+| `pdfstruct <dosya> --format pdf` | `<ad>.<uzantı>.pdf` | PDF çıktısı (DOCX/TXT/MD/HTML ve görseller için; PDF girdide atlanır) |
 
 **Format komutları PDF'i yeniden çıkarmaz / OCR'lamaz:**
 
@@ -340,16 +443,18 @@ Python yolu veya CUDA gerekmez.
 
 ## Kurulum (yeniden kurmak gerekirse)
 
+En kolayı: repo klasöründe `setup-windows.cmd`. Elle:
+
 ```
 cd <repo>
 python -m venv .venv
-.venv\Scripts\python.exe -m pip install -e ".[dev]"
+.venv\Scripts\python.exe -m pip install -e ".[dev,gui,mcp]"
 ```
 
-Bu klasördeki `.cmd` dosyaları (`pdfjson.cmd`, `pdfhtml.cmd`, ...) bu `.venv`'i kullanır ve
-klasör USER PATH'te olduğu için venv'i aktive etmeden her yerden çalışır. Başka bir Python
-ortamına `pip install -e .` ile kurulduğunda aynı komutlar o ortamın kendi console script'leri
-olarak gelir (Windows/macOS/Linux).
+Bu klasördeki `.cmd` dosyaları (`pdfjson.cmd`, `pdfstruct-gui.cmd`, `pdfstruct-mcp.cmd`, ...)
+bu `.venv`'i kullanır; klasör USER PATH'te olduğu için venv'i aktive etmeden her yerden çalışır.
+Başka bir Python ortamına `pip install` ile kurulduğunda aynı komutlar o ortamın kendi
+script'leri olarak gelir (Windows/macOS/Linux).
 
 Testler, derleme ve kurulum doğrulamasının tamamı tek komutla: `ci-local`
 (= `.venv\Scripts\python.exe scripts\ci_local.py`). Yalnız testler:
@@ -357,31 +462,41 @@ Testler, derleme ve kurulum doğrulamasının tamamı tek komutla: `ci-local`
 
 ## Claude ile kullanım
 
-Kurallar: [CLAUDE_RULES.md](CLAUDE_RULES.md) (projelerin `CLAUDE.md` dosyasına
-kopyalanacak kısa snippet de orada).
+Önerilen yol: yerel MCP sunucusu + Agent Skill (yukarıda, *Claude: MCP server and Agent Skill*).
+MCP yoksa komut satırı kuralları: [CLAUDE_RULES.md](CLAUDE_RULES.md) (projelerin `CLAUDE.md`
+dosyasına kopyalanacak kısa snippet de orada).
 
-Özet: Claude PDF'i ve `.raw.json`'un tamamını context'ine **almaz**; yalnızca terminal özetini,
-`*.summary.json` dosyalarını ve `review_pages` sayfalarını okur.
+Özet: Claude belgeyi ve `.raw.json`'un tamamını context'ine **almaz**; dönüşümde yalnız durum ve
+dosya adları, analiz istenirse `search` / `read_excerpt` ile küçük bir parça okunur.
 
 ## Dosyalar
 
 ```
 PDFStruct\
-├── pyproject.toml          paket tanımı, bağımlılıklar, console script'ler
+├── pyproject.toml          paket tanımı, bağımlılıklar, extra'lar ([gui], [mcp]), script'ler
 ├── src\pdfstruct\
 │   ├── __init__.py         sürüm (tek kaynak)
+│   ├── service.py          run_job: CLI, GUI ve MCP'nin ortak dönüştürme servisi
+│   ├── inputs\             girdi adapter'ları: text (txt, md), html, docx, image
+│   ├── extract.py          PDF çıkarımı, kalite skoru, raw JSON yazımı, parser hook
+│   ├── ocr.py              OCR backend (PaddleOCR, aynı süreçte, tembel yükleme)
+│   ├── export.py           raw.json → html/txt/md/csv/xlsx/docx/jsonl/sqlite/pdf
+│   ├── pdfwriter.py        PDF çıktısı (reportlab)
 │   ├── cli.py              pdfstruct + alias komutları, girdi/çıktı yolu çözümleme
-│   ├── interactive.py      menüler (bare pdfstruct)
-│   ├── extract.py          native çıkarım, kalite skoru, OCR istemcisi, parser hook
-│   ├── export.py           raw.json → html/txt/md/csv/xlsx/docx/jsonl/sqlite
-│   └── ocr.py              OCR backend (PaddleOCR, aynı süreçte, tembel yükleme)
-├── pdfstruct.cmd, pdfjson.cmd … pdfsqlite.cmd   venv'i kendisi seçen Windows komutları
-├── pdfexport.cmd, pdf2json.cmd                ortak başlatıcı / alt seviye komut
-├── scripts\ci_local.py, ci-local.cmd         tek komutluk local CI
+│   ├── interactive.py      terminal menüleri (bare pdfstruct)
+│   ├── mcp_server.py       yerel MCP sunucusu (pdfstruct-mcp)
+│   └── gui\                masaüstü penceresi (pdfstruct-gui): state, worker, window, app
+├── skills\pdfstruct\SKILL.md   Agent Skill (yalnız talimat)
+├── setup-windows.cmd       Windows kurulum + pencereyi açma (tekrar çalıştırılabilir)
+├── pdfstruct.cmd, pdfjson.cmd … pdfsqlite.cmd, pdfstruct-gui.cmd, pdfstruct-mcp.cmd
+│                           venv'i kendisi seçen Windows komutları
+├── pdfexport.cmd, pdf2json.cmd   ortak başlatıcı / alt seviye komut
+├── scripts\ci_local.py, ci-local.cmd, scripts\build_skill_zip.py
 ├── config.example.json     ayar örneği
-├── schemas\raw_document.schema.json
+├── schemas\raw_document.schema.json   raw JSON şeması (1.0 PDF, 1.1 diğer girdiler)
 ├── examples\example_parser.py
+├── docs\MASTER_ARCHITECTURE.md
 ├── tests\
-├── README.md, CHANGELOG.md, LICENSE
-└── CLAUDE_RULES.md
+├── README.md, CHANGELOG.md, LICENSE, THIRD_PARTY_NOTICES.md
+└── CLAUDE.md, CLAUDE_RULES.md
 ```
