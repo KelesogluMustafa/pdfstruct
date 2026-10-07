@@ -4,7 +4,7 @@
   "display_name": "PDFStruct",
   "version": "0.2.1",
   "description": "Convert documents and images locally with PDFStruct. Claude gets statuses and file names, not the document content.",
-  "long_description": "PDFStruct converts PDF, DOCX, TXT, Markdown, HTML and images on this computer into JSON, HTML, TXT, Markdown, CSV, XLSX, DOCX, JSONL, SQLite and PDF, with OCR when a page needs it.\n\nThis extension is a launcher. It starts the PDFStruct 0.2.1 runtime that the install script put into your user profile (.local\\pdfstruct\\v0.2.1). Install that first. The extension does not bundle PDFStruct, needs no API key and sends nothing to a third-party service.\n\nWorkflow: convert returns statuses and output file names only; search and read_excerpt return small, capped pieces of text and only when you ask to read a document.",
+  "long_description": "PDFStruct converts PDF, DOCX, TXT, Markdown, HTML and images on this computer into JSON, HTML, TXT, Markdown, CSV, XLSX, DOCX, JSONL, SQLite and PDF, with OCR when a page needs it.\n\nThis extension is a launcher. It starts the active PDFStruct runtime that install-windows.cmd put into your user profile (.local\\pdfstruct\\current). Install that first. The extension does not bundle PDFStruct, needs no API key and sends nothing to a third-party service.\n\nWorkflow: convert returns statuses and output file names only; search and read_excerpt return small, capped pieces of text and only when you ask to read a document.",
   "author": {
     "name": "KelesogluMustafa",
     "url": "https://github.com/KelesogluMustafa"
@@ -14,12 +14,18 @@
     "url": "https://github.com/KelesogluMustafa/pdfstruct"
   },
   "license": "MIT",
-  "keywords": ["pdf", "ocr", "docx", "conversion", "local"],
+  "keywords": [
+    "pdf",
+    "ocr",
+    "docx",
+    "conversion",
+    "local"
+  ],
   "server": {
     "type": "binary",
     "entry_point": "server/pdfstruct-mcp.cmd",
     "mcp_config": {
-      "command": "${HOME}${/}.local${/}pdfstruct${/}v0.2.1${/}Scripts${/}pdfstruct-mcp.exe",
+      "command": "${HOME}${/}.local${/}pdfstruct${/}current${/}Scripts${/}pdfstruct-mcp.exe",
       "args": [],
       "env": {}
     }
@@ -47,6 +53,8 @@
     }
   ],
   "compatibility": {
-    "platforms": ["win32"]
+    "platforms": [
+      "win32"
+    ]
   }
 }

@@ -3,12 +3,18 @@
 ## 0.2.1
 
 - Windows: `install-windows.cmd` installs a release wheel into its own versioned folder
-  (`%USERPROFILE%\.local\pdfstruct\v<version>`), not linked to a source checkout
-- Claude for Windows extension (`.mcpb`) is now a plain launcher for that install: `binary`
-  server type, no Node launcher, nothing to configure. It still needs PDFStruct installed first
-- Skill: use the MCP tools in Claude for Windows; no command-line fallback without a local
-  shell; say so when PDFStruct is not connected
-- No change to conversion, the MCP tools or their limits
+  (`%USERPROFILE%\.local\pdfstruct\v<version>`), checks it (import, command line, MCP server)
+  and only then points `...\pdfstruct\current` at it. Not linked to a source checkout
+- `update-windows.cmd`: user-confirmed update from GitHub Releases with checksum verification;
+  the old version is kept; `-Rollback`, `-Check`, `-List`. No background updater
+- Claude Code / Cowork plugin (`pdfstruct-plugin.zip`): the skill plus the registration of the
+  existing MCP server
+- Claude Desktop extension (`.mcpb`) is a plain launcher for the active runtime: `binary` server
+  type, no Node launcher, nothing to configure. It needs PDFStruct installed first
+- One skill source (`plugin/skills/pdfstruct/SKILL.md`); the plugin and `pdfstruct-skill.zip` are
+  built from it. The skill is shorter and uses the MCP tools only in Claude Desktop chat
+- `PDFStruct-Windows-Setup-<version>.zip` bundles the install/update scripts and the wheel
+- No change to conversion, the command line, the desktop window, the MCP tools or their limits
 
 ## 0.2.0
 

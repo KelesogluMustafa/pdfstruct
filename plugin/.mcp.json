@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "pdfstruct": {
+      "command": "${USERPROFILE}\\.local\\pdfstruct\\current\\Scripts\\pdfstruct-mcp.exe",
+      "args": []
+    }
+  }
+}

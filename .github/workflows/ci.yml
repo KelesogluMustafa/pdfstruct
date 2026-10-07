@@ -72,7 +72,7 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: |
           python -m pdfstruct.gui.app --smoke-test
-          python scripts/build_skill_zip.py
+          python scripts/build_release_assets.py --out dist/ci-assets
       - name: OCR smoke (reports SKIPPED where paddlepaddle has no wheel)
         shell: bash
         run: |

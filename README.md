@@ -18,13 +18,13 @@ One engine, four ways to use it:
 Not on PyPI yet. Install from a checkout or from the wheel of a
 [GitHub release](https://github.com/KelesogluMustafa/pdfstruct/releases/latest).
 
-**Windows, for daily use (and for Claude).** Download `pdfstruct-<version>-py3-none-any.whl`
-from the release, then run `install-windows.cmd -Wheel <path to the wheel>` from this repository
-(or `powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1 -Wheel ...`). It creates
-`%USERPROFILE%\.local\pdfstruct\v<version>` with its own Python environment and installs the
-wheel there, with the desktop window and the MCP server. The result is not linked to any source
-folder, the system Python packages are not touched, and running it again only repairs or
-updates that folder. It needs Python 3.10–3.13 from python.org.
+**Windows, for daily use (and for Claude).** Download `PDFStruct-Windows-Setup-<version>.zip`
+from the release, unpack it and run `install-windows.cmd`. It creates
+`%USERPROFILE%\.local\pdfstruct\v<version>` with its own Python environment, installs the wheel
+from the ZIP (checksum verified), checks the result (import, command line, MCP server) and then
+points `%USERPROFILE%\.local\pdfstruct\current` at it. The install is not linked to any source
+folder, other installed versions are kept, and the system Python packages are not touched. It
+needs Python 3.10–3.13 from python.org. See [Choose your integration](#choose-your-integration).
 
 **Windows, for working on the code.** `setup-windows.cmd` creates `.venv` inside the repository
 and installs it in editable mode, then opens the window. Do not point Claude at that
@@ -43,6 +43,44 @@ pip install -e ".[gui,mcp]"       (from a release: pip install "pdfstruct-<versi
 command line only. The OCR packages are installed automatically on Windows x86_64,
 Linux x86_64 and macOS Apple Silicon with Python 3.9–3.13; the first OCR run downloads the two
 models once (about 70 MB) to `~/.pdfstruct/models`.
+
+## Choose your integration
+
+Everything uses the same PDFStruct on your computer. Install it first, then add what you need.
+
+| You want | Install |
+|---|---|
+| **CLI only** (terminal, desktop window) | 1 |
+| **Claude Code / Cowork** | 1, then 3 |
+| **Claude Desktop chat** | 1, then 2 |
+| **Both** | 1, 2 and 3 |
+
+1. **`install-windows.cmd`** (from `PDFStruct-Windows-Setup-<version>.zip`): PDFStruct itself.
+2. **`pdfstruct-<version>.mcpb`**: Claude Desktop extension. Settings, Extensions, Advanced
+   settings, Install Extension. It is a launcher for step 1 and contains no copy of PDFStruct;
+   installing only the `.mcpb` on a computer without step 1 does not work.
+3. **`pdfstruct-plugin.zip`**: Claude Code / Cowork plugin. It brings the skill and registers
+   the same MCP server. In Claude Code you can also run `claude --plugin-dir <unpacked folder>`.
+
+`pdfstruct-skill.zip` is the skill alone, for people who do not use the plugin (for example
+Claude Desktop chat with only the extension). **If you install the plugin, do not also upload
+the skill ZIP**: the plugin already contains the same skill, and Claude would list it twice.
+The same goes for a hand-made `claude mcp add ... pdfstruct` registration or a copy of the skill
+in `%USERPROFILE%\.claude\skills\pdfstruct`: remove them once the plugin works.
+
+The plugin and the extension both start
+`%USERPROFILE%\.local\pdfstruct\current\Scripts\pdfstruct-mcp.exe`. `current` is a link to the
+active version, so neither names a version or a source folder, and neither depends on a
+development checkout.
+
+| Task | How |
+|---|---|
+| Update | `update-windows.cmd`: shows the active and the latest stable version and asks before it downloads. The new version is installed next to the old one, checked, and only then made active. Nothing runs in the background. |
+| Only check | `update-windows.cmd -Check` |
+| Go back | `update-windows.cmd -Rollback` switches to the previously active version, which is always kept. `update-windows.cmd -List` shows what is installed. |
+| After an update | Restart Claude. The plugin and the extension follow `current` and need no reinstall. Install a newer `.mcpb` or plugin by hand only when a release says they changed. |
+| Disable | Switch the extension or the plugin off in Claude. Nothing is deleted. |
+| Uninstall | Remove the extension and the plugin in Claude, then delete `%USERPROFILE%\.local\pdfstruct` (remove the `current` link first: `rmdir current`). |
 
 ## Formats
 
@@ -123,37 +161,27 @@ Tools: `convert(paths, formats, output_dir?, force_ocr?)`, `inspect(path)`,
 `supported_formats()`, `search(path_or_output, query)`, `read_excerpt(path_or_output, page?,
 max_chars?)` (at most 2000 characters per call, returned as untrusted document text).
 
-Both Claude apps start the same program: the `pdfstruct-mcp.exe` of the versioned install above.
+Install order and the plugin/extension/skill choice are in
+[Choose your integration](#choose-your-integration). Details:
 
-**Claude Code:**
+- **Plugin** (`plugin/`): `.claude-plugin/plugin.json`, the skill and `.mcp.json`. No PDFStruct
+  code inside. The normal chat of Claude Desktop does not start plugin MCP servers; it needs the
+  extension.
+- **Extension** (`integrations/claude-desktop/`): manifest with server type `binary` and a
+  `.cmd` for manual checks; no Node launcher and nothing to configure. If it does not load, add
+  the server by hand to `claude_desktop_config.json`:
 
-```
-claude mcp add --scope user pdfstruct -- "%USERPROFILE%\.local\pdfstruct\v<version>\Scripts\pdfstruct-mcp.exe"
-```
+  ```json
+  { "mcpServers": { "pdfstruct": { "command": "C:\\Users\\<you>\\.local\\pdfstruct\\current\\Scripts\\pdfstruct-mcp.exe" } } }
+  ```
 
-(macOS/Linux: the `pdfstruct-mcp` of the environment you installed into.)
-
-**Claude for Windows (chat): the `.mcpb` extension.** `pdfstruct-<version>.mcpb` is a launcher,
-not a standalone app: it contains a manifest and nothing else to run, and starts
-`%USERPROFILE%\.local\pdfstruct\v<version>\Scripts\pdfstruct-mcp.exe`. Install PDFStruct with
-`install-windows.cmd` first; installing only the `.mcpb` on another computer does not work.
-Then in Claude: Settings, Extensions, Advanced settings, Install Extension, choose the file.
-`python scripts/build_claude_windows.py --stage` builds the extension, the Skill ZIP and a
-step-by-step `README-INSTALL.txt` into `%USERPROFILE%\.local\pdfstruct\claude-windows`.
-If the extension does not load, add the server by hand to `claude_desktop_config.json`:
-
-```json
-{ "mcpServers": { "pdfstruct": { "command": "C:\\Users\\<you>\\.local\\pdfstruct\\v<version>\\Scripts\\pdfstruct-mcp.exe" } } }
-```
-
-The Agent Skill teaches Claude to use the MCP tools and not to read documents into the chat for
-a conversion. Where Claude can run commands on your own computer (Claude Code) it may use the
-command line instead; in Claude for Windows chat there is no such access, so the Skill tells
-Claude to use the MCP tools only and to say so when the extension is not connected. It
-contains instructions only. A Skill installed in Claude Code is not carried over to Claude for
-Windows: upload the ZIP there separately (Customize, Skills). Build `dist/pdfstruct-skill.zip` with `python scripts/build_skill_zip.py`, or take it
-from a release, then either upload the ZIP in Claude's skill settings or unpack it to
-`~/.claude/skills/pdfstruct/` for Claude Code.
+- **Skill** (`plugin/skills/pdfstruct/SKILL.md`): the single source. The plugin and
+  `pdfstruct-skill.zip` are both built from it. It teaches Claude to inspect, convert and read
+  only small pieces on request; in Claude Desktop chat it uses the MCP tools only and says so
+  when PDFStruct is not connected. It contains instructions only.
+- **Build**: `python scripts/build_release_assets.py` writes all release files reproducibly to
+  `dist/release-<version>/`; `--stage` also copies the Claude files to
+  `%USERPROFILE%\.local\pdfstruct\claude-windows`.
 
 ## Windows portable folder (no Python needed)
 
@@ -519,16 +547,18 @@ PDFStruct\
 │   ├── interactive.py      terminal menüleri (bare pdfstruct)
 │   ├── mcp_server.py       yerel MCP sunucusu (pdfstruct-mcp)
 │   └── gui\                masaüstü penceresi (pdfstruct-gui): state, worker, window, app
-├── skills\pdfstruct\SKILL.md   Agent Skill (yalnız talimat)
+├── plugin\                Claude Code / Cowork plugin'i: plugin.json, .mcp.json ve tek Skill kaynağı
+│                           (plugin\skills\pdfstruct\SKILL.md)
 ├── integrations\claude-desktop\   Claude for Windows .mcpb başlatıcısı (manifest + .cmd; runtime içermez)
 ├── packaging\windows\     PyInstaller spec + build_portable.py (Windows portable klasör)
-├── install-windows.cmd     wheel'den %USERPROFILE%\.local\pdfstruct\v<sürüm> kurulumu (Claude bunu kullanır)
+├── install-windows.cmd     wheel'den %USERPROFILE%\.local\pdfstruct\v<sürüm> kurulumu + current bağlantısı
+├── update-windows.cmd      onaylı güncelleme, -Rollback, -List (arka plan servisi yok)
 ├── setup-windows.cmd       geliştirme kurulumu: repo içi .venv (editable) + pencereyi açma
 ├── pdfstruct.cmd, pdfjson.cmd … pdfsqlite.cmd, pdfstruct-gui.cmd, pdfstruct-mcp.cmd
 │                           venv'i kendisi seçen Windows komutları
 ├── pdfexport.cmd, pdf2json.cmd   ortak başlatıcı / alt seviye komut
-├── scripts\ci_local.py, ci-local.cmd, scripts\build_skill_zip.py
-├── scripts\install-windows.ps1, scripts\build_claude_windows.py
+├── scripts\ci_local.py, ci-local.cmd, scripts\build_release_assets.py
+├── scripts\install-windows.ps1, update-windows.ps1, runtime-common.ps1, verify_runtime.py
 ├── config.example.json     ayar örneği
 ├── schemas\raw_document.schema.json   raw JSON şeması (1.0 PDF, 1.1 diğer girdiler)
 ├── examples\example_parser.py

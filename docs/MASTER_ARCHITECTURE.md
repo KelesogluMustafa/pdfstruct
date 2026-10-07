@@ -1479,8 +1479,31 @@ Outputs: JSON, HTML, TXT, Markdown, CSV, XLSX, DOCX, JSONL, SQLite and PDF.
   process so OCR output cannot corrupt the protocol and OCR memory is released afterwards.
   Tools return paths and counts; document text is returned only by `read_excerpt`/`search`,
   capped, on explicit request, and labelled as untrusted data.
-- Agent Skill: `skills/pdfstruct/SKILL.md`. Instructions only (MCP first, CLI fallback); no
+- Agent Skill: `plugin/skills/pdfstruct/SKILL.md` is the single source (the plugin and the
+  skill ZIP are built from it). Instructions only (MCP tools; command line only with a local shell); no
   engine, no models.
+
+## 35.5 Claude distribution (0.2.1)
+
+```text
+PDFStruct Core -> CLI / GUI / thin MCP adapter (official Python MCP SDK, stdio)
+
+Claude Code / Cowork : plugin (skill + registration of the installed MCP server)
+Claude Desktop chat  : .mcpb extension (launcher) + the same skill
+```
+
+- Runtime: `%USERPROFILE%\.local\pdfstruct\v<version>` per version, installed from the release
+  wheel, never editable. `current` is a directory junction to the active version and is
+  switched only after `scripts/verify_runtime.py` passed on the new runtime. The plugin and the
+  `.mcpb` start `current\Scripts\pdfstruct-mcp.exe`; neither names a version, a user or a
+  checkout.
+- Updates are user-confirmed (`update-windows.cmd`): GitHub latest stable release, checksum,
+  install next to the old version, verify, switch. The previous version stays for rollback.
+  No background updater, service or scheduled task.
+- The skill has one source, `plugin/skills/pdfstruct/SKILL.md`. `pdfstruct-plugin.zip` and
+  `pdfstruct-skill.zip` are built from it by `scripts/build_release_assets.py`. A user of the
+  plugin does not install the skill ZIP.
+- The plugin, the `.mcpb` and the skill ZIP contain no runtime, no dependencies and no models.
 
 ---
 

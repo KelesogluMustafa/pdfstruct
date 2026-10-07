@@ -1,0 +1,14 @@
+{
+  "name": "pdfstruct",
+  "version": "0.2.1",
+  "description": "Convert documents and images locally with PDFStruct. Bundles the PDFStruct skill and registers the installed PDFStruct MCP server; requires PDFStruct installed with install-windows.cmd.",
+  "author": {
+    "name": "Mustafa Kelesoğlu",
+    "url": "https://github.com/KelesogluMustafa"
+  },
+  "homepage": "https://github.com/KelesogluMustafa/pdfstruct",
+  "repository": "https://github.com/KelesogluMustafa/pdfstruct",
+  "license": "MIT",
+  "keywords": ["pdf", "ocr", "docx", "conversion", "local"],
+  "mcpServers": "./.mcp.json"
+}

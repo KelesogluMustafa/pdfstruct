@@ -211,11 +211,21 @@ asyncio.run(main(sys.argv[1]))
 
 
 def step_skill() -> str:
+    """The skill ZIP and the plugin ZIP, both built from plugin/skills/pdfstruct."""
+    import zipfile
     sys.path.insert(0, str(ROOT / "scripts"))
-    import build_skill_zip
-    target = build_skill_zip.build()
-    names = build_skill_zip.check(target)
-    return f"PASS ({target.name}, {len(names)} file)"
+    import build_release_assets as assets
+    with tempfile.TemporaryDirectory(prefix="pdfstruct_skill_") as tmp:
+        skill = assets.build_skill(Path(tmp))
+        plugin = assets.build_plugin(Path(tmp), assets.version())
+        with zipfile.ZipFile(skill) as archive:
+            if archive.namelist() != ["pdfstruct/SKILL.md"]:
+                raise StepFailed(f"skill zip entries: {archive.namelist()}")
+            text = archive.read("pdfstruct/SKILL.md")
+        with zipfile.ZipFile(plugin) as archive:
+            if archive.read("skills/pdfstruct/SKILL.md") != text:
+                raise StepFailed("the plugin and the skill zip carry different SKILL.md content")
+    return "PASS (skill zip and plugin zip from one source)"
 
 
 def step_native(venv: Path, work: Path) -> None:
