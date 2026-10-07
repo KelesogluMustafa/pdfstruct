@@ -190,7 +190,7 @@ def choose_formats(count: int, read_key, write, allow_back: bool) -> tuple[str, 
     return (status, [keys[i] for i in picked] if picked else [])
 
 
-def session(cwd: Path, target: Path | None, out_dir: Path | None, options: list[str],
+def session(cwd: Path, target: Path | None, out_dir: Path | None, options: dict,
             read_key=read_key, write=None, read_line=None) -> int:
     """The whole interactive flow. Returns an exit code."""
     from . import __version__

@@ -269,7 +269,8 @@ def ocr_page(page, native: dict, client: ocr.OcrEngine, ocfg: dict, tmp_dir: Pat
 
 # ---------------------------------------------------------------- one document
 
-def process_page(page, number: int, mode: str, cfg: dict, client: ocr.OcrEngine, tmp_dir: Path) -> dict:
+def process_page(page, number: int, mode: str, cfg: dict, client: ocr.OcrEngine, tmp_dir: Path,
+                 notify=None) -> dict:
     qcfg = cfg["quality"]
     native = extract_native(page)
     quality = score_text_layer(native, qcfg)
@@ -292,6 +293,8 @@ def process_page(page, number: int, mode: str, cfg: dict, client: ocr.OcrEngine,
         needs_review = True
     elif wants_ocr:
         try:
+            if notify is not None:
+                notify({"type": "phase", "phase": "ocr", "page": number})
             result = ocr_page(page, native, client, cfg["ocr"], tmp_dir)
             if not result["blocks"] and quality["chars"] > 0 and mode != "force-ocr":
                 warnings.append("ocr_returned_nothing_kept_native")
@@ -329,8 +332,13 @@ def process_page(page, number: int, mode: str, cfg: dict, client: ocr.OcrEngine,
     }
 
 
+class Cancelled(Exception):
+    """Raised at a safe point (between pages) when the caller asked to stop."""
+
+
 def process_pdf(pdf_path: Path, raw_path: Path, summary_path: Path, mode: str,
-                cfg: dict, client: ocr.OcrEngine, fingerprint: str, source: dict) -> dict:
+                cfg: dict, client: ocr.OcrEngine, fingerprint: str, source: dict,
+                *, on_event=None, cancel=None) -> dict:
     pages_tmp = raw_path.with_name(raw_path.name + ".pages.tmp")
     raw_tmp = raw_path.with_name(raw_path.name + ".tmp")
     page_summaries, doc_warnings = [], []
@@ -340,10 +348,13 @@ def process_pdf(pdf_path: Path, raw_path: Path, summary_path: Path, mode: str,
         with tempfile.TemporaryDirectory(prefix="pdfpipe_") as tmp, \
                 pages_tmp.open("w", encoding="utf-8") as pages_out:
             for index in range(page_count):
+                if cancel is not None and cancel():
+                    raise Cancelled()
                 try:
                     page = pdf[index]
                     try:
-                        record = process_page(page, index + 1, mode, cfg, client, Path(tmp))
+                        record = process_page(page, index + 1, mode, cfg, client, Path(tmp),
+                                              notify=on_event)
                     finally:
                         page.close()
                 except Exception as exc:
@@ -359,6 +370,9 @@ def process_pdf(pdf_path: Path, raw_path: Path, summary_path: Path, mode: str,
                                        if k not in ("text", "blocks")}
                                       | {"chars_out": len(record["text"]),
                                          "blocks_out": len(record["blocks"])})
+                if on_event is not None:
+                    on_event({"type": "page", "page": index + 1, "pages": page_count,
+                              "method": record["method"]})
     finally:
         pdf.close()
 
@@ -410,6 +424,73 @@ def process_pdf(pdf_path: Path, raw_path: Path, summary_path: Path, mode: str,
                    raw_size_bytes=raw_path.stat().st_size, pages=page_summaries)
     write_json_atomic(summary_path, summary)
     return summary
+
+
+# ---------------------------------------------------------------- one input file
+
+def options_key(mode: str, cfg: dict) -> str:
+    """Everything that changes the extraction result; part of the fingerprint."""
+    return json.dumps({"mode": mode, "quality": cfg["quality"], "ocr": cfg["ocr"],
+                       "tool": TOOL_VERSION}, sort_keys=True)
+
+
+def output_key(path: Path) -> str:
+    """Base name of every file written for this input (<key>.raw.json, <key>.html, ...)."""
+    return path.stem
+
+
+def extract_one(path: Path, out_dir: Path, mode: str, cfg: dict, client: ocr.OcrEngine,
+                opts_key: str, *, overwrite: bool = False, on_event=None, cancel=None) -> dict:
+    """Extract one input into <out_dir>/<key>.raw.json unless an up-to-date one exists.
+
+    Returns a JSON-safe entry: status "ok" (extracted), "skipped" (raw reused) or "error".
+    Raises Cancelled when `cancel()` turns true between pages; nothing partial is left behind.
+    """
+    key = output_key(path)
+    raw_path = out_dir / f"{key}.raw.json"
+    summary_path = out_dir / f"{key}.summary.json"
+    entry = {"file": path.name}
+    leftovers = (raw_path.with_name(raw_path.name + ".pages.tmp"),
+                 raw_path.with_name(raw_path.name + ".tmp"))
+    try:
+        stat = path.stat()
+        sha = sha256_file(path)
+        fingerprint = hashlib.sha256((sha + opts_key).encode()).hexdigest()[:16]
+        summary = None
+        if not overwrite and raw_path.is_file() and summary_path.is_file():
+            try:
+                previous = json.loads(summary_path.read_text(encoding="utf-8"))
+                if previous.get("status") == "ok" and previous.get("fingerprint") == fingerprint:
+                    summary = previous
+                    entry["status"] = "skipped"
+            except ValueError:
+                pass
+        if summary is None:
+            if on_event is not None:
+                on_event({"type": "phase", "phase": "extract"})
+            source = {"path": str(path), "file_name": path.name,
+                      "sha256": sha, "size_bytes": stat.st_size}
+            summary = process_pdf(path, raw_path, summary_path, mode, cfg,
+                                  client, fingerprint, source,
+                                  on_event=on_event, cancel=cancel)
+            entry["status"] = "ok"
+        entry.update(method=summary["extraction_method"],
+                     text_layer_score=summary["text_layer_score"],
+                     ocr_used=summary["ocr_used"], pages=summary["page_count"],
+                     review_pages=summary["review_pages"],
+                     warnings=summary["warnings"], raw_file=raw_path.name)
+    except Cancelled:
+        for leftover in leftovers:
+            leftover.unlink(missing_ok=True)
+        raise
+    except Exception as exc:
+        entry.update(status="error", error=f"{type(exc).__name__}: {exc}")
+        for leftover in leftovers:
+            leftover.unlink(missing_ok=True)
+        write_json_atomic(summary_path, {
+            "status": "error", "source_file": str(path), "error": entry["error"],
+            "traceback": traceback.format_exc(limit=5)})
+    return entry
 
 
 # ---------------------------------------------------------------- parser hook
@@ -482,8 +563,7 @@ def main(argv: list[str] | None = None) -> int:
     pdfs = collect_pdfs(input_path)
     out_dir.mkdir(parents=True, exist_ok=True)
     client = ocr.OcrEngine(cfg["ocr"])
-    options_key = json.dumps({"mode": mode, "quality": cfg["quality"], "ocr": cfg["ocr"],
-                              "tool": TOOL_VERSION}, sort_keys=True)
+    opts_key = options_key(mode, cfg)
 
     started = time.time()
     totals = {"files": len(pdfs), "pages": 0, "native": 0, "ocr": 0, "mixed": 0, "none": 0,
@@ -491,50 +571,19 @@ def main(argv: list[str] | None = None) -> int:
     documents = []
     try:
         for pdf_path in pdfs:
-            stem = pdf_path.stem
-            raw_path = out_dir / f"{stem}.raw.json"
-            summary_path = out_dir / f"{stem}.summary.json"
-            entry = {"file": pdf_path.name}
-            try:
-                stat = pdf_path.stat()
-                sha = sha256_file(pdf_path)
-                fingerprint = hashlib.sha256((sha + options_key).encode()).hexdigest()[:16]
-                summary = None
-                if not args.overwrite and raw_path.is_file() and summary_path.is_file():
-                    try:
-                        previous = json.loads(summary_path.read_text(encoding="utf-8"))
-                        if previous.get("status") == "ok" and previous.get("fingerprint") == fingerprint:
-                            summary = previous
-                            totals["skipped"] += 1
-                            entry["status"] = "skipped"
-                    except ValueError:
-                        pass
-                if summary is None:
-                    source = {"path": str(pdf_path), "file_name": pdf_path.name,
-                              "sha256": sha, "size_bytes": stat.st_size}
-                    summary = process_pdf(pdf_path, raw_path, summary_path, mode, cfg,
-                                          client, fingerprint, source)
-                    entry["status"] = "ok"
-                totals["pages"] += summary["page_count"]
-                totals[summary["extraction_method"]] += 1
-                totals["review_pages"] += len(summary["review_pages"])
-                entry.update(method=summary["extraction_method"],
-                             text_layer_score=summary["text_layer_score"],
-                             ocr_used=summary["ocr_used"], pages=summary["page_count"],
-                             review_pages=summary["review_pages"],
-                             warnings=summary["warnings"], raw_file=raw_path.name)
-            except Exception as exc:
+            entry = extract_one(pdf_path, out_dir, mode, cfg, client, opts_key,
+                                overwrite=args.overwrite)
+            if entry["status"] == "error":
                 totals["errors"] += 1
-                entry.update(status="error", error=f"{type(exc).__name__}: {exc}")
-                for leftover in (raw_path.with_name(raw_path.name + ".pages.tmp"),
-                                 raw_path.with_name(raw_path.name + ".tmp")):
-                    leftover.unlink(missing_ok=True)
-                write_json_atomic(summary_path, {
-                    "status": "error", "source_file": str(pdf_path), "error": entry["error"],
-                    "traceback": traceback.format_exc(limit=5)})
-            if parser_module is not None and entry.get("status") in ("ok", "skipped"):
+            else:
+                totals["skipped"] += entry["status"] == "skipped"
+                totals["pages"] += entry["pages"]
+                totals[entry["method"]] += 1
+                totals["review_pages"] += len(entry["review_pages"])
+            if parser_module is not None and entry["status"] in ("ok", "skipped"):
                 try:
-                    target = run_parser(parser_module, raw_path, out_dir, stem)
+                    target = run_parser(parser_module, out_dir / entry["raw_file"], out_dir,
+                                        output_key(pdf_path))
                     if target is not None:
                         totals["parsed"] += 1
                         entry["parsed_file"] = target.name

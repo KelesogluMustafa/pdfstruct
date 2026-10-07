@@ -175,33 +175,48 @@ def _passthrough(args) -> list[str]:
     return rest
 
 
-def convert(pdfs: list[Path], formats: list[str], out_dir: Path, options: list[str],
-            write=None) -> int:
-    """N PDFs x M formats through the normal single-format path, one line per export.
+def job_options(args) -> dict:
+    """Extraction options of a parsed namespace as service.JobRequest fields."""
+    mode = ("force-ocr" if getattr(args, "force_ocr", False)
+            else "native-only" if getattr(args, "native_only", False) else "auto")
+    return {"mode": mode, "overwrite": bool(getattr(args, "overwrite", False)),
+            "config": getattr(args, "config", None), "parser": getattr(args, "parser", None)}
 
-    Each PDF is extracted at most once: the first format creates <name>.raw.json
-    (json directly, any other format through export's missing-raw step) and the
-    remaining formats reuse it. Returns the number of failed exports."""
+
+def convert(paths: list[Path], formats: list[str], out_dir: Path, options: dict | None = None,
+            write=None) -> int:
+    """N inputs x M formats through the shared service, one line per export.
+
+    Each input is extracted at most once and every format is written from that same
+    result. Returns the number of failed exports (a failed extraction counts once)."""
+    from . import service
+
     write = write or (lambda text: print(text, end=""))
-    ordered = [f for f in COMMANDS if f in formats]  # json first, so extraction happens once
     failures = 0
-    for pdf in pdfs:
-        write(f"{pdf.name}\n")
-        for fmt in ordered:
-            argv = ["--input", str(pdf), "--output", str(out_dir), *options]
-            captured = io.StringIO()
-            with contextlib.redirect_stdout(captured):
-                try:
-                    code = extract.main(argv) if fmt == "json" else export.main(["--format", fmt, *argv])
-                except Exception as exc:  # keep going with the other exports
-                    captured.write(f"{type(exc).__name__}: {exc}\n")
-                    code = 1
-            if code == 0:
-                write(f"  \u2713 {fmt.upper()}\n")
-            else:
-                failures += 1
-                tail = captured.getvalue().strip().splitlines()
-                write(f"  \u2717 {fmt.upper()}  {tail[-1] if tail else 'failed'}\n")
+
+    def on_event(event: dict) -> None:
+        nonlocal failures
+        kind = event["type"]
+        if kind == "file_started":
+            write(f"{event['name']}\n")
+        elif kind == "export_done" and event["ok"]:
+            write(f"  \u2713 {event['format'].upper()}\n")
+        elif kind == "export_done":
+            failures += 1
+            write(f"  \u2717 {event['format'].upper()}  {event['error']}\n")
+        elif kind == "file_finished" and event["status"] == "failed" and not event.get("exports_failed"):
+            failures += 1
+            write(f"  \u2717 {event['error']}\n")
+
+    try:
+        result = service.run_job(service.JobRequest(inputs=list(paths), formats=list(formats),
+                                                    output_dir=out_dir, **(options or {})),
+                                 on_event=on_event)
+    except Exception as exc:  # bad request (format, mode, config, parser)
+        write(f"ERROR: {exc}\n")
+        return 1
+    if result.ocr_unavailable_reason:
+        write(f"\nOCR_UNAVAILABLE: {result.ocr_unavailable_reason}\n")
     return failures
 
 
@@ -241,7 +256,7 @@ def main(argv: list[str] | None = None, cwd: Path | None = None, **ui) -> int:
             print(f"{exc}\n\n{usage('pdfstruct')}")
             return 2
         pdfs = [input_path] if input_path.is_file() else find_pdfs(input_path)
-        failures = convert(pdfs, known.format, out_dir or default_out, _passthrough(args))
+        failures = convert(pdfs, known.format, out_dir or default_out, job_options(args))
         print(f"\nOUTPUT: {out_dir or default_out}")
         return 1 if failures else 0
 
@@ -254,12 +269,12 @@ def main(argv: list[str] | None = None, cwd: Path | None = None, **ui) -> int:
         return 2
     if not ui and not interactive.is_tty():
         print("pdfstruct needs a terminal for its menus. In scripts use --format, e.g.\n"
-              "  pdfstruct belge.pdf --format json xlsx\n  pdfjson belge.pdf\n\n"
+              "  pdfstruct belge.pdf --format json,xlsx\n  pdfjson belge.pdf\n\n"
               + usage("pdfstruct"))
         return 2
     if not ui:
         interactive.enable_ansi()
-    return interactive.session(cwd, path, out_dir, _passthrough(args), **ui)
+    return interactive.session(cwd, path, out_dir, job_options(args), **ui)
 
 
 def _alias(command: str):
