@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 - Inputs: DOCX, TXT, Markdown, HTML and images (JPG, PNG, TIFF, BMP, WebP) next to PDF
 - Output: PDF as the tenth format (readable re-flow for text inputs, picture with searchable
@@ -13,6 +13,8 @@
 - `--all-types` to take every supported file of a folder; folders stay PDF-only by default
 - Non-PDF inputs keep their extension in output names (`report.docx.txt`)
 - Optional: Windows portable folder (PyInstaller) and a Claude Desktop `.mcpb` connector
+- Verified by CI on Windows x86_64, Linux x86_64 and macOS Apple Silicon; the desktop window was
+  used by hand on Windows 11 only
 
 ## 0.1.0
 

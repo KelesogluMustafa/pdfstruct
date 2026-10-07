@@ -2,7 +2,7 @@
   "manifest_version": "0.4",
   "name": "pdfstruct",
   "display_name": "PDFStruct",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Convert documents and images locally with PDFStruct. Claude gets statuses and file names, not the document content.",
   "long_description": "Connector for a locally installed PDFStruct. It starts the `pdfstruct-mcp` command of your PDFStruct installation; the bundle itself contains no conversion engine and no OCR models. Install PDFStruct first (setup-windows.cmd from the repository, or pip install \"pdfstruct[mcp]\"), then point this extension at the pdfstruct-mcp command if it is not on PATH.",
   "author": { "name": "Mustafa Kelesoğlu", "url": "https://github.com/KelesogluMustafa" },

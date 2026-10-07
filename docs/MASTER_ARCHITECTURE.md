@@ -1,7 +1,7 @@
 # PDFStruct — Master Architecture & Development Constitution
 
 > **Status:** Active project source of truth  
-> **Current public release:** v0.1.0  
+> **Current public release:** v0.2.0  
 > **Project:** PDFStruct  
 > **Repository:** https://github.com/KelesogluMustafa/pdfstruct  
 > **Website:** https://mustafakelesoglu.de/pdfstruct  
@@ -986,7 +986,11 @@ This roadmap is directional, not a command to implement everything now.
 - public GitHub release
 - project website
 
-## v0.2 — Desktop GUI
+## v0.2 — Desktop GUI (released as 0.2.0)
+
+Delivered: shared service, multi-format inputs, PDF output, PySide6 window, local MCP server,
+Agent Skill, Windows portable folder. Still open from the list below: Setup.exe and the macOS
+`.app` / `.dmg`.
 
 Primary target:
 

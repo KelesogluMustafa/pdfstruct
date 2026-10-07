@@ -18,7 +18,7 @@ SCRIPTS_DIR = Path(sysconfig.get_path("scripts"))  # venv: next to python; syste
 
 
 def test_import_and_single_version():
-    assert pdfstruct.__version__ == "0.1.0"
+    assert pdfstruct.__version__ == "0.2.0"
     assert metadata.version("pdfstruct") == pdfstruct.__version__  # package is installed
     assert extract.TOOL_VERSION == pdfstruct.__version__
     assert extract.TOOL_NAME == "pdfstruct"
