@@ -128,11 +128,35 @@ claude mcp add --scope user pdfstruct -- "<path to>\.venv\Scripts\pdfstruct-mcp.
 { "mcpServers": { "pdfstruct": { "command": "<path to>\\.venv\\Scripts\\pdfstruct-mcp.exe" } } }
 ```
 
+**Claude Desktop extension (`.mcpb`), optional.** `integrations/claude-desktop` is a small
+connector bundle: it contains no engine and simply starts the `pdfstruct-mcp` command of your
+PDFStruct installation. Build it with the official tool and open the file in Claude Desktop
+(Settings, Extensions), then set the path to `pdfstruct-mcp` if it is not on `PATH`:
+
+```
+npx @anthropic-ai/mcpb pack integrations/claude-desktop dist/pdfstruct.mcpb
+```
+
+The manifest passes `mcpb validate` and the connector is tested over MCP stdio, but the
+install inside Claude Desktop itself has not been tried yet: treat the `.mcpb` as unverified
+and use the `mcpServers` entry above if it does not load.
+
 The Agent Skill teaches Claude to use the server (or the command line when the server is not
 connected) and not to read documents into the chat for a conversion. It contains instructions
 only. Build `dist/pdfstruct-skill.zip` with `python scripts/build_skill_zip.py`, or take it
 from a release, then either upload the ZIP in Claude's skill settings or unpack it to
 `~/.claude/skills/pdfstruct/` for Claude Code.
+
+## Windows portable folder (no Python needed)
+
+`PDFStruct-Portable-<version>-win64.zip` from a release unpacks to a folder with
+`PDFStruct.exe` (the window) and `pdfstruct-cli.exe` (the command line). Nothing is installed.
+It is about 800 MB unpacked because it carries the OCR runtime and Qt; the OCR models are still
+downloaded on first use. The build is unsigned, so SmartScreen may ask once, and it has been
+built and tried on one Windows 11 x64 machine only. The MCP server is not part of it.
+
+Build it yourself with `pip install -e ".[gui,packaging]"` and
+`python packaging/windows/build_portable.py`.
 
 ## Platforms
 
@@ -140,7 +164,8 @@ Tested by the automated suite on GitHub Actions with Python 3.13: Windows x86_64
 Linux x86_64 and macOS Apple Silicon (extraction, OCR, all formats; the desktop window is
 checked there without a display). The window was opened and used by hand on Windows 11 only.
 On macOS and Linux the window is expected to work after `pip install ".[gui]"` but has not
-been tried on a real desktop: treat it as unverified. There is no installer, `.app` or DMG yet.
+been tried on a real desktop: treat it as unverified. There is no installer, `.app` or DMG yet;
+the Windows portable folder above is the only packaged build.
 macOS Intel, Linux ARM64 and Windows ARM install and read native text; OCR is not available
 there because PaddlePaddle publishes no wheels for them.
 
@@ -487,6 +512,8 @@ PDFStruct\
 │   ├── mcp_server.py       yerel MCP sunucusu (pdfstruct-mcp)
 │   └── gui\                masaüstü penceresi (pdfstruct-gui): state, worker, window, app
 ├── skills\pdfstruct\SKILL.md   Agent Skill (yalnız talimat)
+├── integrations\claude-desktop\   Claude Desktop .mcpb bağlayıcısı (manifest + Node başlatıcı)
+├── packaging\windows\     PyInstaller spec + build_portable.py (Windows portable klasör)
 ├── setup-windows.cmd       Windows kurulum + pencereyi açma (tekrar çalıştırılabilir)
 ├── pdfstruct.cmd, pdfjson.cmd … pdfsqlite.cmd, pdfstruct-gui.cmd, pdfstruct-mcp.cmd
 │                           venv'i kendisi seçen Windows komutları

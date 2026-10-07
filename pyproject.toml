@@ -40,6 +40,8 @@ mcp = ["mcp>=2,<3"]
 # Desktop window (pdfstruct-gui). Qt for Python, LGPL-3.0; only the widgets modules are needed.
 gui = ["PySide6-Essentials>=6.7,<7"]
 dev = ["pytest", "jsonschema", "build"]
+# Windows portable folder (packaging/windows/build_portable.py).
+packaging = ["pyinstaller>=6.10"]
 
 [project.scripts]
 pdfstruct = "pdfstruct.cli:main"
@@ -64,7 +66,8 @@ path = "src/pdfstruct/__init__.py"
 packages = ["src/pdfstruct"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src", "tests", "schemas", "examples", "skills", "scripts", "docs",
+include = ["src", "tests", "schemas", "examples", "skills", "scripts", "docs", "integrations",
+           "packaging",
            "config.example.json", "setup-windows.cmd", "README.md", "CHANGELOG.md", "LICENSE",
            "THIRD_PARTY_NOTICES.md", "CLAUDE.md", "CLAUDE_RULES.md"]
 

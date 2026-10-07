@@ -1,0 +1,39 @@
+{
+  "manifest_version": "0.4",
+  "name": "pdfstruct",
+  "display_name": "PDFStruct",
+  "version": "0.1.0",
+  "description": "Convert documents and images locally with PDFStruct. Claude gets statuses and file names, not the document content.",
+  "long_description": "Connector for a locally installed PDFStruct. It starts the `pdfstruct-mcp` command of your PDFStruct installation; the bundle itself contains no conversion engine and no OCR models. Install PDFStruct first (setup-windows.cmd from the repository, or pip install \"pdfstruct[mcp]\"), then point this extension at the pdfstruct-mcp command if it is not on PATH.",
+  "author": { "name": "Mustafa Kelesoğlu", "url": "https://github.com/KelesogluMustafa" },
+  "repository": { "type": "git", "url": "https://github.com/KelesogluMustafa/pdfstruct" },
+  "homepage": "https://github.com/KelesogluMustafa/pdfstruct",
+  "license": "MIT",
+  "keywords": ["pdf", "ocr", "docx", "conversion", "local"],
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/index.js"],
+      "env": { "PDFSTRUCT_MCP_COMMAND": "${user_config.pdfstruct_mcp}" }
+    }
+  },
+  "tools": [
+    { "name": "convert", "description": "Convert local files; returns status and output file names only." },
+    { "name": "inspect", "description": "Type, size, page count and likely method of a file. No content." },
+    { "name": "supported_formats", "description": "Input and output formats and their limits." },
+    { "name": "search", "description": "Find a phrase in a converted document (short snippets)." },
+    { "name": "read_excerpt", "description": "Read at most 2000 characters of extracted text." }
+  ],
+  "user_config": {
+    "pdfstruct_mcp": {
+      "type": "file",
+      "title": "pdfstruct-mcp command",
+      "description": "Full path to pdfstruct-mcp (Windows: the pdfstruct-mcp.exe inside the .venv/Scripts folder of your PDFStruct installation). Leave the default if it is on PATH.",
+      "required": false,
+      "default": "pdfstruct-mcp"
+    }
+  },
+  "compatibility": { "platforms": ["win32", "darwin", "linux"], "runtimes": { "node": ">=18" } }
+}

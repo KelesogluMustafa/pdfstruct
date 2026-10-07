@@ -12,6 +12,7 @@
 - Raw schema 1.1 for non-PDF inputs (additive); PDF raw documents are unchanged
 - `--all-types` to take every supported file of a folder; folders stay PDF-only by default
 - Non-PDF inputs keep their extension in output names (`report.docx.txt`)
+- Optional: Windows portable folder (PyInstaller) and a Claude Desktop `.mcpb` connector
 
 ## 0.1.0
 
