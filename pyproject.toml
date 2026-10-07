@@ -37,6 +37,8 @@ dependencies = [
 ocr = ["paddleocr>=3.7,<4", "paddlepaddle>=3.0,<4"]
 # Local MCP server for Claude Desktop / Claude Code (pdfstruct-mcp).
 mcp = ["mcp>=2,<3"]
+# Desktop window (pdfstruct-gui). Qt for Python, LGPL-3.0; only the widgets modules are needed.
+gui = ["PySide6-Essentials>=6.7,<7"]
 dev = ["pytest", "jsonschema", "build"]
 
 [project.scripts]
@@ -51,6 +53,9 @@ pdfdocx = "pdfstruct.cli:pdfdocx"
 pdfjsonl = "pdfstruct.cli:pdfjsonl"
 pdfsqlite = "pdfstruct.cli:pdfsqlite"
 pdfstruct-mcp = "pdfstruct.mcp_server:main"
+
+[project.gui-scripts]
+pdfstruct-gui = "pdfstruct.gui.app:main"
 
 [tool.hatch.version]
 path = "src/pdfstruct/__init__.py"
