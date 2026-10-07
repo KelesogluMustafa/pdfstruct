@@ -35,6 +35,8 @@ dependencies = [
 [project.optional-dependencies]
 # Force the OCR backend on a platform the markers above do not cover.
 ocr = ["paddleocr>=3.7,<4", "paddlepaddle>=3.0,<4"]
+# Local MCP server for Claude Desktop / Claude Code (pdfstruct-mcp).
+mcp = ["mcp>=2,<3"]
 dev = ["pytest", "jsonschema", "build"]
 
 [project.scripts]
@@ -48,6 +50,7 @@ pdfxlsx = "pdfstruct.cli:pdfxlsx"
 pdfdocx = "pdfstruct.cli:pdfdocx"
 pdfjsonl = "pdfstruct.cli:pdfjsonl"
 pdfsqlite = "pdfstruct.cli:pdfsqlite"
+pdfstruct-mcp = "pdfstruct.mcp_server:main"
 
 [tool.hatch.version]
 path = "src/pdfstruct/__init__.py"

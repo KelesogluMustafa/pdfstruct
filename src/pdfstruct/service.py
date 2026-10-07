@@ -315,3 +315,29 @@ def inspect_file(path) -> dict:
     except Exception as exc:
         info.update(error_code="unreadable", error=short(f"{type(exc).__name__}: {exc}"))
     return info
+
+
+def main(argv: list[str] | None = None) -> int:
+    """python -m pdfstruct.service <request.json> <result.json>
+
+    Runs one job in its own process and writes the text-free result as JSON. Used by the
+    MCP server so OCR output never reaches its stdio channel and OCR memory is freed."""
+    import sys
+
+    args = sys.argv[1:] if argv is None else argv
+    if len(args) != 2:
+        print("usage: python -m pdfstruct.service <request.json> <result.json>", file=sys.stderr)
+        return 2
+    request_file, result_file = Path(args[0]), Path(args[1])
+    try:
+        fields = json.loads(request_file.read_text(encoding="utf-8"))
+        allowed = {"inputs", "formats", "output_dir", "mode", "overwrite", "config"}
+        result = run_job(JobRequest(**{k: v for k, v in fields.items() if k in allowed})).to_dict()
+    except (ValueError, TypeError, OSError) as exc:
+        result = {"ok": False, "error_code": "bad_request", "error": short(exc)}
+    extract.write_json_atomic(result_file, result)
+    return 0 if result.get("ok") else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
