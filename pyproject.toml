@@ -68,7 +68,7 @@ packages = ["src/pdfstruct"]
 [tool.hatch.build.targets.sdist]
 include = ["src", "tests", "schemas", "examples", "skills", "scripts", "docs", "integrations",
            "packaging",
-           "config.example.json", "setup-windows.cmd", "README.md", "CHANGELOG.md", "LICENSE",
+           "config.example.json", "setup-windows.cmd", "install-windows.cmd", "README.md", "CHANGELOG.md", "LICENSE",
            "THIRD_PARTY_NOTICES.md", "CLAUDE.md", "CLAUDE_RULES.md"]
 
 [tool.pytest.ini_options]

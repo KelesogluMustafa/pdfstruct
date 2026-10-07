@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.1
+
+- Windows: `install-windows.cmd` installs a release wheel into its own versioned folder
+  (`%USERPROFILE%\.local\pdfstruct\v<version>`), not linked to a source checkout
+- Claude for Windows extension (`.mcpb`) is now a plain launcher for that install: `binary`
+  server type, no Node launcher, nothing to configure. It still needs PDFStruct installed first
+- Skill: use the MCP tools in Claude for Windows; no command-line fallback without a local
+  shell; say so when PDFStruct is not connected
+- No change to conversion, the MCP tools or their limits
+
 ## 0.2.0
 
 - Inputs: DOCX, TXT, Markdown, HTML and images (JPG, PNG, TIFF, BMP, WebP) next to PDF

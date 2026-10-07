@@ -18,10 +18,18 @@ One engine, four ways to use it:
 Not on PyPI yet. Install from a checkout or from the wheel of a
 [GitHub release](https://github.com/KelesogluMustafa/pdfstruct/releases/latest).
 
-**Windows, the easy way.** In the repository folder, double-click `setup-windows.cmd` (or run it
-in a terminal). It creates `.venv` inside the folder, installs PDFStruct with the desktop window
-and the MCP server, and opens the window. Running it again only updates the installation. It
-needs Python 3.10–3.13 from python.org; it does not touch the system Python packages.
+**Windows, for daily use (and for Claude).** Download `pdfstruct-<version>-py3-none-any.whl`
+from the release, then run `install-windows.cmd -Wheel <path to the wheel>` from this repository
+(or `powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1 -Wheel ...`). It creates
+`%USERPROFILE%\.local\pdfstruct\v<version>` with its own Python environment and installs the
+wheel there, with the desktop window and the MCP server. The result is not linked to any source
+folder, the system Python packages are not touched, and running it again only repairs or
+updates that folder. It needs Python 3.10–3.13 from python.org.
+
+**Windows, for working on the code.** `setup-windows.cmd` creates `.venv` inside the repository
+and installs it in editable mode, then opens the window. Do not point Claude at that
+environment: a running MCP server keeps its files locked and follows whatever the working tree
+contains.
 
 **Any platform, with pip** (Windows, macOS, Linux):
 
@@ -115,35 +123,35 @@ Tools: `convert(paths, formats, output_dir?, force_ocr?)`, `inspect(path)`,
 `supported_formats()`, `search(path_or_output, query)`, `read_excerpt(path_or_output, page?,
 max_chars?)` (at most 2000 characters per call, returned as untrusted document text).
 
-Claude Code:
+Both Claude apps start the same program: the `pdfstruct-mcp.exe` of the versioned install above.
+
+**Claude Code:**
 
 ```
-claude mcp add --scope user pdfstruct -- "<path to>\.venv\Scripts\pdfstruct-mcp.exe"
+claude mcp add --scope user pdfstruct -- "%USERPROFILE%\.local\pdfstruct\v<version>\Scripts\pdfstruct-mcp.exe"
 ```
 
-(macOS/Linux: `.venv/bin/pdfstruct-mcp`.) Claude Desktop: add the same command under
-`mcpServers` in `claude_desktop_config.json`:
+(macOS/Linux: the `pdfstruct-mcp` of the environment you installed into.)
+
+**Claude for Windows (chat): the `.mcpb` extension.** `pdfstruct-<version>.mcpb` is a launcher,
+not a standalone app: it contains a manifest and nothing else to run, and starts
+`%USERPROFILE%\.local\pdfstruct\v<version>\Scripts\pdfstruct-mcp.exe`. Install PDFStruct with
+`install-windows.cmd` first; installing only the `.mcpb` on another computer does not work.
+Then in Claude: Settings, Extensions, Advanced settings, Install Extension, choose the file.
+`python scripts/build_claude_windows.py --stage` builds the extension, the Skill ZIP and a
+step-by-step `README-INSTALL.txt` into `%USERPROFILE%\.local\pdfstruct\claude-windows`.
+If the extension does not load, add the server by hand to `claude_desktop_config.json`:
 
 ```json
-{ "mcpServers": { "pdfstruct": { "command": "<path to>\\.venv\\Scripts\\pdfstruct-mcp.exe" } } }
+{ "mcpServers": { "pdfstruct": { "command": "C:\\Users\\<you>\\.local\\pdfstruct\\v<version>\\Scripts\\pdfstruct-mcp.exe" } } }
 ```
 
-**Claude Desktop extension (`.mcpb`), optional.** `integrations/claude-desktop` is a small
-connector bundle: it contains no engine and simply starts the `pdfstruct-mcp` command of your
-PDFStruct installation. Build it with the official tool and open the file in Claude Desktop
-(Settings, Extensions), then set the path to `pdfstruct-mcp` if it is not on `PATH`:
-
-```
-npx @anthropic-ai/mcpb pack integrations/claude-desktop dist/pdfstruct.mcpb
-```
-
-The manifest passes `mcpb validate` and the connector is tested over MCP stdio, but the
-install inside Claude Desktop itself has not been tried yet: treat the `.mcpb` as unverified
-and use the `mcpServers` entry above if it does not load.
-
-The Agent Skill teaches Claude to use the server (or the command line when the server is not
-connected) and not to read documents into the chat for a conversion. It contains instructions
-only. Build `dist/pdfstruct-skill.zip` with `python scripts/build_skill_zip.py`, or take it
+The Agent Skill teaches Claude to use the MCP tools and not to read documents into the chat for
+a conversion. Where Claude can run commands on your own computer (Claude Code) it may use the
+command line instead; in Claude for Windows chat there is no such access, so the Skill tells
+Claude to use the MCP tools only and to say so when the extension is not connected. It
+contains instructions only. A Skill installed in Claude Code is not carried over to Claude for
+Windows: upload the ZIP there separately (Customize, Skills). Build `dist/pdfstruct-skill.zip` with `python scripts/build_skill_zip.py`, or take it
 from a release, then either upload the ZIP in Claude's skill settings or unpack it to
 `~/.claude/skills/pdfstruct/` for Claude Code.
 
@@ -512,13 +520,15 @@ PDFStruct\
 │   ├── mcp_server.py       yerel MCP sunucusu (pdfstruct-mcp)
 │   └── gui\                masaüstü penceresi (pdfstruct-gui): state, worker, window, app
 ├── skills\pdfstruct\SKILL.md   Agent Skill (yalnız talimat)
-├── integrations\claude-desktop\   Claude Desktop .mcpb bağlayıcısı (manifest + Node başlatıcı)
+├── integrations\claude-desktop\   Claude for Windows .mcpb başlatıcısı (manifest + .cmd; runtime içermez)
 ├── packaging\windows\     PyInstaller spec + build_portable.py (Windows portable klasör)
-├── setup-windows.cmd       Windows kurulum + pencereyi açma (tekrar çalıştırılabilir)
+├── install-windows.cmd     wheel'den %USERPROFILE%\.local\pdfstruct\v<sürüm> kurulumu (Claude bunu kullanır)
+├── setup-windows.cmd       geliştirme kurulumu: repo içi .venv (editable) + pencereyi açma
 ├── pdfstruct.cmd, pdfjson.cmd … pdfsqlite.cmd, pdfstruct-gui.cmd, pdfstruct-mcp.cmd
 │                           venv'i kendisi seçen Windows komutları
 ├── pdfexport.cmd, pdf2json.cmd   ortak başlatıcı / alt seviye komut
 ├── scripts\ci_local.py, ci-local.cmd, scripts\build_skill_zip.py
+├── scripts\install-windows.ps1, scripts\build_claude_windows.py
 ├── config.example.json     ayar örneği
 ├── schemas\raw_document.schema.json   raw JSON şeması (1.0 PDF, 1.1 diğer girdiler)
 ├── examples\example_parser.py

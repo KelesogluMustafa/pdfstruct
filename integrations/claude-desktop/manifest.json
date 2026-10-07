@@ -1,39 +1,52 @@
 {
-  "manifest_version": "0.4",
+  "manifest_version": "0.3",
   "name": "pdfstruct",
   "display_name": "PDFStruct",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Convert documents and images locally with PDFStruct. Claude gets statuses and file names, not the document content.",
-  "long_description": "Connector for a locally installed PDFStruct. It starts the `pdfstruct-mcp` command of your PDFStruct installation; the bundle itself contains no conversion engine and no OCR models. Install PDFStruct first (setup-windows.cmd from the repository, or pip install \"pdfstruct[mcp]\"), then point this extension at the pdfstruct-mcp command if it is not on PATH.",
-  "author": { "name": "Mustafa Kelesoğlu", "url": "https://github.com/KelesogluMustafa" },
-  "repository": { "type": "git", "url": "https://github.com/KelesogluMustafa/pdfstruct" },
-  "homepage": "https://github.com/KelesogluMustafa/pdfstruct",
+  "long_description": "PDFStruct converts PDF, DOCX, TXT, Markdown, HTML and images on this computer into JSON, HTML, TXT, Markdown, CSV, XLSX, DOCX, JSONL, SQLite and PDF, with OCR when a page needs it.\n\nThis extension is a launcher. It starts the PDFStruct 0.2.1 runtime that the install script put into your user profile (.local\\pdfstruct\\v0.2.1). Install that first. The extension does not bundle PDFStruct, needs no API key and sends nothing to a third-party service.\n\nWorkflow: convert returns statuses and output file names only; search and read_excerpt return small, capped pieces of text and only when you ask to read a document.",
+  "author": {
+    "name": "KelesogluMustafa",
+    "url": "https://github.com/KelesogluMustafa"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/KelesogluMustafa/pdfstruct"
+  },
   "license": "MIT",
   "keywords": ["pdf", "ocr", "docx", "conversion", "local"],
   "server": {
-    "type": "node",
-    "entry_point": "server/index.js",
+    "type": "binary",
+    "entry_point": "server/pdfstruct-mcp.cmd",
     "mcp_config": {
-      "command": "node",
-      "args": ["${__dirname}/server/index.js"],
-      "env": { "PDFSTRUCT_MCP_COMMAND": "${user_config.pdfstruct_mcp}" }
+      "command": "${HOME}${/}.local${/}pdfstruct${/}v0.2.1${/}Scripts${/}pdfstruct-mcp.exe",
+      "args": [],
+      "env": {}
     }
   },
   "tools": [
-    { "name": "convert", "description": "Convert local files; returns status and output file names only." },
-    { "name": "inspect", "description": "Type, size, page count and likely method of a file. No content." },
-    { "name": "supported_formats", "description": "Input and output formats and their limits." },
-    { "name": "search", "description": "Find a phrase in a converted document (short snippets)." },
-    { "name": "read_excerpt", "description": "Read at most 2000 characters of extracted text." }
-  ],
-  "user_config": {
-    "pdfstruct_mcp": {
-      "type": "file",
-      "title": "pdfstruct-mcp command",
-      "description": "Full path to pdfstruct-mcp (Windows: the pdfstruct-mcp.exe inside the .venv/Scripts folder of your PDFStruct installation). Leave the default if it is on PATH.",
-      "required": false,
-      "default": "pdfstruct-mcp"
+    {
+      "name": "convert",
+      "description": "Convert local files into one or more formats. Returns status and output file names only."
+    },
+    {
+      "name": "inspect",
+      "description": "Type, size, page count and likely extraction method of a file. No content."
+    },
+    {
+      "name": "supported_formats",
+      "description": "Input and output formats and their limits."
+    },
+    {
+      "name": "search",
+      "description": "Find a phrase in a converted document: page numbers and short snippets."
+    },
+    {
+      "name": "read_excerpt",
+      "description": "Read at most 2000 characters of extracted text from a converted document."
     }
-  },
-  "compatibility": { "platforms": ["win32", "darwin", "linux"], "runtimes": { "node": ">=18" } }
+  ],
+  "compatibility": {
+    "platforms": ["win32"]
+  }
 }

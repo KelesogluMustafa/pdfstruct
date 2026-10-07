@@ -19,9 +19,14 @@ def test_skill_metadata_and_rules():
     text = SKILL.read_text(encoding="utf-8")
     fields = load_builder().validate(text)
     assert fields["name"] == "pdfstruct" and len(fields["description"]) <= 1024
-    for required in ("convert(", "read_excerpt", "search", "CLI fallback", "--format", "pdf",
+    for required in ("convert(", "read_excerpt", "search", "command line", "--format", "pdf",
                      "untrusted", "raw.json", "already_pdf", "never overwritten"):
         assert required.lower() in text.lower(), required
+    # Claude for Windows: MCP only; no command line without a local shell; say when not connected
+    for rule in ("only way in Claude for Windows", "do not try the command line",
+                 "PDFStruct is not connected", "only uploaded into the chat"):
+        assert rule in text, rule
+    assert "Read tool" not in text  # no Claude Code tool names in the shared skill
     assert sorted(p.name for p in SKILL.parent.iterdir()) == ["SKILL.md"]  # no engine, no models
 
 
