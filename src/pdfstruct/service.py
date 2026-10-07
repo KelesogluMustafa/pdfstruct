@@ -14,10 +14,12 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from . import export, extract, ocr
+from . import export, extract, inputs, ocr
 
 MODES = ("auto", "force-ocr", "native-only")
-OUTPUT_FORMATS = ["json", *export.FORMATS]
+OUTPUT_FORMATS = ["json", *export.FORMATS]  # ten formats; "json" is the raw document
+INPUT_FORMATS = list(inputs.INPUT_FORMATS)
+INPUT_EXTENSIONS = sorted(inputs.EXTENSIONS)
 MAX_WARNINGS = 5
 MAX_MESSAGE_CHARS = 200
 
@@ -124,25 +126,26 @@ def run_job(request: JobRequest, on_event=None, cancel=None) -> JobResult:
         raise ValueError(f"unknown mode: {request.mode} (choose from {', '.join(MODES)})")
     cfg = extract.load_config(Path(request.config) if request.config else None)
     parser_module = extract.load_parser(Path(request.parser).resolve()) if request.parser else None
-    inputs = [Path(p).expanduser().resolve() for p in request.inputs]
+    paths = [Path(p).expanduser().resolve() for p in request.inputs]
     opts_key = extract.options_key(request.mode, cfg)
     client = ocr.OcrEngine(cfg["ocr"])
     claimed: dict[Path, Path] = {}  # output base path -> input that owns it in this job
+    sources = set(paths)            # no output may ever replace one of these
 
-    emit({"type": "job_started", "files": len(inputs), "formats": formats})
+    emit({"type": "job_started", "files": len(paths), "formats": formats})
     try:
-        for index, path in enumerate(inputs):
+        for index, path in enumerate(paths):
             item = FileResult(input_path=str(path))
             result.files.append(item)
             if result.cancelled or is_cancelled():
                 result.cancelled = True
                 item.status = "cancelled"
                 continue
-            emit({"type": "file_started", "index": index + 1, "files": len(inputs),
+            emit({"type": "file_started", "index": index + 1, "files": len(paths),
                   "path": str(path), "name": path.name})
             try:
                 _convert_one(path, item, request, formats, cfg, client, opts_key,
-                             parser_module, claimed, emit, is_cancelled)
+                             parser_module, claimed, sources, emit, is_cancelled)
             except extract.Cancelled:
                 result.cancelled = True
                 item.status = "cancelled"
@@ -150,7 +153,7 @@ def run_job(request: JobRequest, on_event=None, cancel=None) -> JobResult:
                 item.status = "failed"
                 item.error_code = item.error_code or "internal_error"
                 item.error = short(f"{type(exc).__name__}: {exc}")
-            emit({"type": "file_finished", "index": index + 1, "files": len(inputs),
+            emit({"type": "file_finished", "index": index + 1, "files": len(paths),
                   "path": str(path), "name": path.name, "status": item.status,
                   "error": item.error,
                   "exports_failed": item.error_code == "export_failed"})
@@ -169,13 +172,34 @@ def _fail(item: FileResult, code: str, message: str) -> None:
     item.status, item.error_code, item.error = "failed", code, short(message)
 
 
+def _merge_warnings(existing: list, new: list) -> list:
+    merged = list(dict.fromkeys([*existing, *(short(w) for w in new)]))
+    if len(merged) > MAX_WARNINGS:
+        merged = merged[:MAX_WARNINGS - 1] + [f"... and {len(merged) - MAX_WARNINGS + 1} more warnings"]
+    return merged
+
+
 def _convert_one(path, item, request, formats, cfg, client, opts_key, parser_module,
-                 claimed, emit, is_cancelled) -> None:
+                 claimed, sources, emit, is_cancelled) -> None:
     if not path.is_file():
         return _fail(item, "not_found", f"file not found: {path}")
-    if path.suffix.lower() != ".pdf":
-        return _fail(item, "unsupported_input", f"unsupported input type: {path.suffix or path.name}")
-    item.input_format = "pdf"
+    fmt_in = inputs.input_format(path)
+    if fmt_in is None:
+        return _fail(item, "unsupported_input",
+                     f"unsupported input type: {path.suffix or path.name} "
+                     f"(supported: {', '.join(INPUT_EXTENSIONS)})")
+    item.input_format = fmt_in
+
+    wanted = []
+    for fmt in formats:  # decided before any work: a PDF is never extracted to become a PDF
+        if fmt == "pdf" and fmt_in == "pdf":
+            item.skipped_formats[fmt] = "already_pdf"
+            emit({"type": "export_done", "format": fmt, "ok": True, "skipped": "already_pdf"})
+        else:
+            wanted.append(fmt)
+    if not wanted:
+        item.status = "skipped"
+        return
 
     out_dir = (Path(request.output_dir).expanduser().resolve() if request.output_dir
                else path.parent / "output")
@@ -189,7 +213,7 @@ def _convert_one(path, item, request, formats, cfg, client, opts_key, parser_mod
     entry = extract.extract_one(path, out_dir, request.mode, cfg, client, opts_key,
                                 overwrite=request.overwrite, on_event=emit, cancel=is_cancelled)
     if entry["status"] == "error":
-        return _fail(item, "extraction_failed", entry["error"])
+        return _fail(item, entry.get("error_code") or "extraction_failed", entry["error"])
     raw_path = out_dir / entry["raw_file"]
     item.raw_reused = entry["status"] == "skipped"
     if item.raw_reused:
@@ -204,11 +228,12 @@ def _convert_one(path, item, request, formats, cfg, client, opts_key, parser_mod
         try:
             extract.run_parser(parser_module, raw_path, out_dir, key)
         except Exception as exc:
-            item.warnings = (item.warnings + [short(f"parser failed: {type(exc).__name__}: {exc}")])[:MAX_WARNINGS]
+            item.warnings = _merge_warnings(item.warnings,
+                                            [f"parser failed: {type(exc).__name__}: {exc}"])
 
     raw = None
     failed = []
-    for fmt in formats:
+    for fmt in wanted:
         if is_cancelled():
             raise extract.Cancelled()
         emit({"type": "phase", "phase": "export", "format": fmt})
@@ -217,11 +242,17 @@ def _convert_one(path, item, request, formats, cfg, client, opts_key, parser_mod
                 target = raw_path
             else:
                 target = out_dir / (key + export.FORMATS[fmt])
-                if target == path:
-                    raise ValueError("output would overwrite the source file")
+                if target in sources:
+                    raise ValueError(f"{target.name} is an input of this job and is never "
+                                     "overwritten; choose another output folder")
                 if raw is None:
                     raw = json.loads(raw_path.read_text(encoding="utf-8"))
-                export.EXPORTERS[fmt](raw, target)
+                reason, warnings = export.write_format(raw, fmt, target)
+                if reason:
+                    item.skipped_formats[fmt] = reason
+                    emit({"type": "export_done", "format": fmt, "ok": True, "skipped": reason})
+                    continue
+                item.warnings = _merge_warnings(item.warnings, warnings)
             item.outputs[fmt] = str(target)
             emit({"type": "export_done", "format": fmt, "ok": True, "path": str(target)})
         except Exception as exc:
@@ -235,4 +266,52 @@ def _convert_one(path, item, request, formats, cfg, client, opts_key, parser_mod
         item.error_code = "export_failed"
         item.error = short(f"{', '.join(failed)} failed: {item.error}")
     else:
-        item.status = "succeeded"
+        item.status = "succeeded" if item.outputs else "skipped"
+
+
+def inspect_file(path) -> dict:
+    """Cheap facts about one input: type, size, logical pages/frames and the likely method.
+
+    Opens the file but never runs OCR and never returns document text."""
+    path = Path(path).expanduser().resolve()
+    info = {"path": str(path), "name": path.name, "supported": False, "input_format": None,
+            "size_bytes": None, "pages": None, "paged": None, "estimated_method": None}
+    if not path.is_file():
+        return {**info, "error_code": "not_found", "error": "file not found"}
+    info["size_bytes"] = path.stat().st_size
+    fmt = inputs.input_format(path)
+    if fmt is None:
+        return {**info, "error_code": "unsupported_input",
+                "error": f"unsupported input type (supported: {', '.join(INPUT_EXTENSIONS)})"}
+    info.update(supported=True, input_format=fmt)
+    try:
+        if fmt == "pdf":
+            import pypdfium2 as pdfium
+            cfg = extract.load_config(None)
+            document = pdfium.PdfDocument(str(path))
+            try:
+                count = len(document)
+                verdicts = []
+                for index in range(min(count, 3)):  # a small sample, text layer only
+                    page = document[index]
+                    try:
+                        quality = extract.score_text_layer(extract.extract_native(page), cfg["quality"])
+                    finally:
+                        page.close()
+                    if not quality["blank"]:
+                        verdicts.append("native" if quality["score"] >= cfg["quality"]["min_page_score"]
+                                        else "ocr")
+            finally:
+                document.close()
+            estimate = "none" if not verdicts else verdicts[0] if len(set(verdicts)) == 1 else "mixed"
+            info.update(pages=count, paged=True, estimated_method=estimate,
+                        estimate_basis=f"first {min(count, 3)} page(s)")
+        elif inputs.is_image(fmt):
+            from .inputs import image
+            frames = image.frame_count(path) if fmt == "tiff" else 1
+            info.update(pages=frames, paged=True, estimated_method="ocr")
+        else:
+            info.update(pages=1, paged=False, estimated_method="native")
+    except Exception as exc:
+        info.update(error_code="unreadable", error=short(f"{type(exc).__name__}: {exc}"))
+    return info

@@ -12,6 +12,8 @@ from pdfstruct import extract as pdf_to_json
 from conftest import TOOL_DIR, UMLAUT_LINE, make_scan_pdf, make_text_pdf
 
 UMLAUTS = "äöüÄÖÜß"
+# a PDF source is exported to the nine non-PDF formats (PDF to PDF is reported as skipped)
+PDF_SOURCE_FORMATS = {k: v for k, v in pdf_export.FORMATS.items() if k != "pdf"}
 
 
 def export(fmt, src, out, *extra) -> int:
@@ -53,9 +55,9 @@ def test_all_formats_from_existing_raw(project, monkeypatch):
     raw_mtime = raw_file.stat().st_mtime_ns
     forbid_extraction(monkeypatch)
 
-    for fmt in pdf_export.FORMATS:
+    for fmt in PDF_SOURCE_FORMATS:
         assert export(fmt, src, out) == 0
-    for suffix in pdf_export.FORMATS.values():
+    for suffix in PDF_SOURCE_FORMATS.values():
         assert (out / f"doc{suffix}").stat().st_size > 0
     assert raw_file.stat().st_mtime_ns == raw_mtime
     assert not list(out.glob("*.tmp"))
@@ -123,11 +125,11 @@ def test_all_formats_from_existing_raw(project, monkeypatch):
 def test_second_run_is_safe(project, monkeypatch):
     src, out = project
     forbid_extraction(monkeypatch)
-    for fmt in pdf_export.FORMATS:
+    for fmt in PDF_SOURCE_FORMATS:
         assert export(fmt, src, out) == 0
     first = {s: (out / f"doc{s}").read_bytes() for s in (".html", ".txt", ".md", ".csv", ".jsonl")}
     counts = sqlite_counts(out / "doc.sqlite")
-    for fmt in pdf_export.FORMATS:
+    for fmt in PDF_SOURCE_FORMATS:
         assert export(fmt, src, out) == 0
     for suffix, content in first.items():
         assert (out / f"doc{suffix}").read_bytes() == content
@@ -171,7 +173,7 @@ def test_ocr_pdf_exports_confidence(tmp_path, ocr_available):
     src, out = tmp_path / "pdf", tmp_path / "output"
     src.mkdir()
     make_scan_pdf(src / "scan.pdf")
-    for fmt in pdf_export.FORMATS:
+    for fmt in PDF_SOURCE_FORMATS:
         assert export(fmt, src, out) == 0
     assert json.loads((out / "scan.raw.json").read_text(encoding="utf-8"))["ocr_used"] is True
     with (out / "scan.csv").open(encoding="utf-8-sig", newline="") as fh:
@@ -223,9 +225,9 @@ def test_nothing_to_do(tmp_path, capsys):
                     reason="the .cmd wrappers need the repo venv on Windows")
 def test_cmd_wrappers(project):
     src, out = project
-    for fmt in pdf_export.FORMATS:
+    for fmt in PDF_SOURCE_FORMATS:
         result = subprocess.run(["cmd", "/c", str(TOOL_DIR / f"pdf{fmt}.cmd")],
                                 cwd=src.parent, capture_output=True, text=True)
         assert result.returncode == 0, result.stdout + result.stderr
         assert f"FORMAT: {fmt}" in result.stdout and "EXTRACTED: 0" in result.stdout
-        assert (out / f"doc{pdf_export.FORMATS[fmt]}").is_file()
+        assert (out / f"doc{PDF_SOURCE_FORMATS[fmt]}").is_file()

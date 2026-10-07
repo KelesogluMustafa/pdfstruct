@@ -5,13 +5,13 @@ build-backend = "hatchling.build"
 [project]
 name = "pdfstruct"
 dynamic = ["version"]
-description = "Convert PDFs locally with native text extraction or OCR and export structured content to JSON, HTML, TXT, Markdown, CSV, XLSX, DOCX, JSONL and SQLite."
+description = "Convert PDFs, DOCX, text, Markdown, HTML and images locally (native text or OCR) into JSON, HTML, TXT, Markdown, CSV, XLSX, DOCX, JSONL, SQLite and PDF."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
 requires-python = ">=3.10"
 authors = [{ name = "Mustafa Kelesoğlu" }]
-keywords = ["pdf", "ocr", "extraction", "json"]
+keywords = ["pdf", "ocr", "extraction", "json", "docx", "conversion"]
 urls = { Homepage = "https://github.com/KelesogluMustafa/pdfstruct", Issues = "https://github.com/KelesogluMustafa/pdfstruct/issues" }
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -23,7 +23,8 @@ dependencies = [
     "pypdfium2>=5,<6",   # native extraction + page rendering for OCR
     "Pillow>=10",
     "openpyxl>=3.1",     # xlsx export
-    "python-docx>=1.1",  # docx export
+    "python-docx>=1.1",  # docx input and export
+    "reportlab>=5,<6",   # pdf export (BSD; ships the Bitstream Vera fonts it uses)
     # OCR backend, installed automatically where paddlepaddle publishes CPU wheels
     # (Windows x86_64, Linux x86_64, macOS arm64; Python 3.9-3.13). Elsewhere native
     # extraction still works and OCR reports that it is unavailable.
@@ -34,7 +35,7 @@ dependencies = [
 [project.optional-dependencies]
 # Force the OCR backend on a platform the markers above do not cover.
 ocr = ["paddleocr>=3.7,<4", "paddlepaddle>=3.0,<4"]
-dev = ["pytest", "reportlab", "jsonschema", "build"]
+dev = ["pytest", "jsonschema", "build"]
 
 [project.scripts]
 pdfstruct = "pdfstruct.cli:main"

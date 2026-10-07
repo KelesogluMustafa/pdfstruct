@@ -98,7 +98,8 @@ def test_no_pdf_found(tmp_path, capsys):
     assert "PDF bulunamadı." in printed and "pdfjson belge.pdf" in printed
     assert not (tmp_path / "output").exists()
     assert run(tmp_path, "json", "missing.pdf") == 2
-    assert run(tmp_path, "json", "notes.txt") == 2
+    (tmp_path / "notes.xyz").write_text("x", encoding="utf-8")
+    assert run(tmp_path, "json", "notes.xyz") == 2  # unsupported type
     assert run(tmp_path, "html") == 2
     assert "pdfhtml belge.pdf" in capsys.readouterr().out
 

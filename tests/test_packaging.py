@@ -30,7 +30,7 @@ def test_console_entry_points_declared():
                if ep.group == "console_scripts"}
     assert scripts.pop("pdfstruct") == "pdfstruct.cli:main"
     assert scripts == {name: f"pdfstruct.cli:{name}" for name in ALIASES}
-    assert [f"pdf{c}" for c in cli.COMMANDS] == ALIASES
+    assert [f"pdf{c}" for c in cli.ALIAS_COMMANDS] == ALIASES  # no alias for --format pdf
     for name in ALIASES:
         assert callable(getattr(cli, name))
 
