@@ -26,10 +26,10 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from . import extract
+from . import extract, inputs
 
 FORMATS = {"html": ".html", "txt": ".txt", "md": ".md", "csv": ".csv", "xlsx": ".xlsx",
-           "docx": ".docx", "jsonl": ".jsonl", "sqlite": ".sqlite"}
+           "docx": ".docx", "jsonl": ".jsonl", "sqlite": ".sqlite", "pdf": ".pdf"}
 RAW_SUFFIX = ".raw.json"
 BLOCK_COLUMNS = ["source_file", "page", "block_index", "text",
                  "x1", "y1", "x2", "y2", "method", "confidence"]
@@ -52,6 +52,48 @@ def clean(text: str | None) -> str:
 
 def source_name(raw: dict) -> str:
     return (raw.get("source") or {}).get("file_name") or Path(raw.get("source_file") or "").name
+
+
+def is_paged(raw: dict) -> bool:
+    """False for inputs without real pages (DOCX, TXT, Markdown, HTML): no page headings."""
+    return bool(raw.get("paged", True))
+
+
+def raw_input_format(raw: dict) -> str:
+    return raw.get("input_format") or "pdf"  # schema 1.0 documents are always PDF
+
+
+def skip_reason(raw: dict, fmt: str) -> str | None:
+    """Why this format is not written for this document, or None."""
+    if fmt == "pdf" and raw_input_format(raw) == "pdf":
+        return "already_pdf"
+    return None
+
+
+def format_warnings(raw: dict, fmt: str) -> list[str]:
+    """Honest notes about what a given input -> output pair cannot carry."""
+    source = raw_input_format(raw)
+    notes = []
+    if source == fmt and source in ("docx", "md", "txt", "html"):
+        notes.append(f"same_format_roundtrip: {fmt} to {fmt} keeps the text only; styling and "
+                     "layout of the source are lost")
+    if inputs.is_image(source) and fmt in ("docx", "md", "html"):
+        notes.append(f"ocr_text_only: the {fmt} output holds the recognised text, not the picture")
+    if fmt in ("csv", "xlsx") and any(block.get("kind") == "table_row"
+                                      for page in raw.get("pages") or []
+                                      for block in page.get("blocks") or []):
+        notes.append(f"tables_flattened: {fmt} lists table rows as text rows, not as "
+                     "spreadsheet cells")
+    return notes
+
+
+def write_format(raw: dict, fmt: str, target: Path) -> tuple[str | None, list[str]]:
+    """Write one format. -> (skip reason or None, warnings). Used by every interface."""
+    reason = skip_reason(raw, fmt)
+    if reason:
+        return reason, []
+    produced = EXPORTERS[fmt](raw, target) or []
+    return None, [*format_warnings(raw, fmt), *produced]
 
 
 def page_score(page: dict):
@@ -84,6 +126,10 @@ def fmt_num(value, digits: int = 2) -> str:
 # ---------------------------------------------------------------- txt / md
 
 def export_txt(raw: dict, path: Path) -> None:
+    if not is_paged(raw):  # no real pages: the text as it is, no page separators
+        body = "\n\n".join(clean(page.get("text")).strip() for page in raw["pages"]).strip()
+        atomic_text(path, body + "\n" if body else "")
+        return
     total = raw["page_count"]
     parts = []
     for page in raw["pages"]:
@@ -92,7 +138,60 @@ def export_txt(raw: dict, path: Path) -> None:
     atomic_text(path, "\n".join(parts))
 
 
+def _md_escape(line: str) -> str:
+    return _MD_LINE_START.sub(lambda m: m.group(1) + "\\" + m.group(2), line.rstrip())
+
+
+def _md_blocks(blocks: list[dict]) -> list[str]:
+    """Markdown for structured blocks (heading, list_item, table_row, code, paragraph)."""
+    out: list[str] = []
+    index = 0
+    while index < len(blocks):
+        block = blocks[index]
+        kind = block.get("kind") or "paragraph"
+        text = clean(block.get("text"))
+        if kind == "table_row":
+            rows = []
+            while (index < len(blocks) and blocks[index].get("kind") == "table_row"
+                   and blocks[index].get("table") == block.get("table")):
+                rows.append([clean(cell).replace("|", "\\|").replace("\n", " ")
+                             for cell in blocks[index].get("cells") or []])
+                index += 1
+            width = max(len(row) for row in rows)
+            rows = [row + [""] * (width - len(row)) for row in rows]
+            out.append("| " + " | ".join(rows[0]) + " |")
+            out.append("|" + " --- |" * width)
+            out += ["| " + " | ".join(row) + " |" for row in rows[1:]]
+            out.append("")
+            continue
+        if kind == "heading":
+            level = min(max(block.get("level") or 1, 1), 6)
+            out += ["#" * level + " " + " ".join(text.split()), ""]
+        elif kind == "list_item":
+            indent = "  " * (max(1, block.get("level") or 1) - 1)
+            marker = "1." if block.get("ordered") else "-"
+            lines = text.split("\n")
+            out.append(f"{indent}{marker} {lines[0]}")
+            out += [f"{indent}  {line}" for line in lines[1:]]
+            following = blocks[index + 1].get("kind") if index + 1 < len(blocks) else None
+            if following != "list_item":
+                out.append("")
+        elif kind == "code":
+            out += ["```", *text.split("\n"), "```", ""]
+        else:
+            lines = text.split("\n")
+            out += [_md_escape(line) + ("  " if number < len(lines) - 1 else "")
+                    for number, line in enumerate(lines)]
+            out.append("")
+        index += 1
+    return out
+
+
 def export_md(raw: dict, path: Path) -> None:
+    if not is_paged(raw):  # the document brings its own headings; no file or page heading
+        out = [line for page in raw["pages"] for line in _md_blocks(page.get("blocks") or [])]
+        atomic_text(path, "\n".join(out).rstrip("\n") + "\n" if out else "")
+        return
     out = [f"# {source_name(raw)}", ""]
     for page in raw["pages"]:
         out += [f"## Page {page['page']}", ""]
@@ -135,6 +234,7 @@ section{background:var(--card);border:1px solid var(--line);border-radius:6px;ma
 .b{white-space:pre-wrap;overflow-wrap:anywhere;padding:1px 4px;border-radius:3px}
 .b:hover{background:var(--bg)}
 .b.low{background:var(--warn-bg)}
+.b.h{font-weight:600;margin-top:6px}
 .b small{color:var(--muted);font-size:11px;margin-left:8px}
 .empty{color:var(--muted);font-style:italic}
 """
@@ -145,25 +245,30 @@ def export_html(raw: dict, path: Path) -> None:
     name = source_name(raw)
     review = set(raw.get("review_pages") or [])
     low_conf = extract.DEFAULT_CONFIG["quality"]["ocr_review_confidence"]
+    paged = is_paged(raw)
     out = ["<!doctype html>", '<html lang="und"><head><meta charset="utf-8">',
            '<meta name="viewport" content="width=device-width,initial-scale=1">',
            f"<title>{esc(name)}</title>", f"<style>{_HTML_CSS}</style></head><body><main>",
            f"<h1>{esc(name)}</h1>", '<div class="meta">',
-           f'<span class="chip">pages: {raw["page_count"]}</span>',
+           (f'<span class="chip">pages: {raw["page_count"]}</span>' if paged
+            else '<span class="chip">unpaged document</span>'),
            f'<span class="chip">method: {esc(str(raw.get("extraction_method")))}</span>',
            f'<span class="chip">text layer score: {fmt_num(raw.get("text_layer_score"))}</span>',
            f'<span class="chip">OCR used: {"yes" if raw.get("ocr_used") else "no"}</span>',
            f'<span class="chip{" review" if review else ""}">review pages: {len(review)}</span>',
-           "</div>", "<nav>"]
-    for page in raw["pages"]:
-        number = page["page"]
-        cls = ' class="review"' if number in review else ""
-        out.append(f'<a{cls} href="#p{number}">{number}</a>')
-    out.append("</nav>")
+           "</div>"]
+    if paged:
+        out.append("<nav>")
+        for page in raw["pages"]:
+            number = page["page"]
+            cls = ' class="review"' if number in review else ""
+            out.append(f'<a{cls} href="#p{number}">{number}</a>')
+        out.append("</nav>")
     for page in raw["pages"]:
         number, method = page["page"], str(page.get("method"))
         blocks = page.get("blocks") or []
-        out.append(f'<section id="p{number}"><div class="head"><h2>Page {number}</h2>'
+        heading = f"Page {number}" if paged else "Content"
+        out.append(f'<section id="p{number}"><div class="head"><h2>{heading}</h2>'
                    f'<span class="chip {esc(method)}">method: {esc(method)}</span>'
                    f'<span class="chip">score: {fmt_num(page_score(page))}</span>')
         if page.get("ocr_confidence") is not None:
@@ -178,12 +283,15 @@ def export_html(raw: dict, path: Path) -> None:
             for index, block in enumerate(blocks):
                 conf = block.get("confidence")
                 bbox = ", ".join(str(v) for v in block.get("bbox") or [])
-                title = f"block {block.get('order', index)} | bbox {bbox}"
+                title = f"block {block.get('order', index)}"
+                title += f" | bbox {bbox}" if bbox else f" | {block.get('kind') or 'text'}"
                 small = ""
                 if conf is not None:
                     title += f" | confidence {conf:.2f}"
                     small = f"<small>{conf:.2f}</small>"
                 cls = "b low" if conf is not None and conf < low_conf else "b"
+                if block.get("kind") == "heading":
+                    cls += " h"
                 out.append(f'<div class="{cls}" title="{esc(title)}">'
                            f'{esc(clean(block.get("text")))}{small}</div>')
         elif clean(page.get("text")).strip():
@@ -211,7 +319,7 @@ def export_jsonl(raw: dict, path: Path) -> None:
     lines = []
     for record in iter_blocks(raw):
         bbox = [record.pop(key) for key in ("x1", "y1", "x2", "y2")]
-        record["bbox"] = bbox
+        record["bbox"] = bbox if any(v is not None for v in bbox) else None
         lines.append(json.dumps(record, ensure_ascii=False))
     atomic_text(path, "".join(line + "\n" for line in lines))
 
@@ -270,12 +378,56 @@ def export_xlsx(raw: dict, path: Path) -> None:
 
 # ---------------------------------------------------------------- docx
 
+def _docx_blocks(document, blocks: list[dict]) -> None:
+    index = 0
+    while index < len(blocks):
+        block = blocks[index]
+        kind = block.get("kind") or "paragraph"
+        text = clean(block.get("text"))
+        if kind == "table_row":
+            rows = []
+            while (index < len(blocks) and blocks[index].get("kind") == "table_row"
+                   and blocks[index].get("table") == block.get("table")):
+                rows.append([clean(cell) for cell in blocks[index].get("cells") or []])
+                index += 1
+            width = max(len(row) for row in rows)
+            table = document.add_table(rows=len(rows), cols=width)
+            table.style = "Table Grid"
+            for r, row in enumerate(rows):
+                for c, cell in enumerate(row):
+                    table.cell(r, c).text = cell
+            document.add_paragraph()
+            continue
+        if kind == "heading":
+            document.add_heading(" ".join(text.split()), level=min(max(block.get("level") or 1, 1), 9))
+        elif kind == "list_item":
+            style = "List Number" if block.get("ordered") else "List Bullet"
+            level = min(max(block.get("level") or 1, 1), 3)
+            document.add_paragraph(text.replace("\n", " "),
+                                   style=style if level == 1 else f"{style} {level}")
+        elif text.strip():
+            paragraph = document.add_paragraph()
+            lines = text.split("\n")
+            for number, line in enumerate(lines):
+                run = paragraph.add_run(line)
+                if number < len(lines) - 1:
+                    run.add_break()
+        index += 1
+
+
 def export_docx(raw: dict, path: Path) -> None:
     from docx import Document
 
     document = Document()
     name = source_name(raw)
     document.core_properties.title = name
+    if not is_paged(raw):  # structure comes from the blocks; no file or page heading
+        for page in raw["pages"]:
+            _docx_blocks(document, page.get("blocks") or [])
+        tmp = path.with_name(path.name + ".tmp")
+        document.save(str(tmp))
+        os.replace(tmp, path)
+        return
     document.add_heading(name, level=1)
     pages = raw["pages"]
     for position, page in enumerate(pages):
@@ -387,9 +539,14 @@ def export_sqlite(raw: dict, path: Path) -> None:
         conn.close()
 
 
+def export_pdf(raw: dict, path: Path) -> list[str]:
+    from .pdfwriter import write_pdf
+    return write_pdf(raw, path)
+
+
 EXPORTERS = {"html": export_html, "txt": export_txt, "md": export_md, "csv": export_csv,
              "xlsx": export_xlsx, "docx": export_docx, "jsonl": export_jsonl,
-             "sqlite": export_sqlite}
+             "sqlite": export_sqlite, "pdf": export_pdf}
 
 
 # ---------------------------------------------------------------- CLI
@@ -406,6 +563,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     mode.add_argument("--native-only", action="store_true",
                       help="only for documents that still need extraction")
     ap.add_argument("--config", help="config JSON for the extraction step")
+    ap.add_argument("--all-types", action="store_true",
+                    help="in a folder, take every supported input type, not only PDFs")
     return ap
 
 
@@ -418,6 +577,8 @@ def extract_missing(targets: list[Path], out_dir: Path, args) -> str:
         extra.append("--native-only")
     if args.config:
         extra += ["--config", args.config]
+    if args.all_types:
+        extra.append("--all-types")
     captured = io.StringIO()
     with contextlib.redirect_stdout(captured):
         for target in targets:
@@ -433,7 +594,8 @@ def main(argv: list[str] | None = None) -> int:
     input_path = Path(args.input).resolve()
     out_dir = Path(args.output).resolve()
 
-    pdfs = {p.stem: p for p in extract.collect_pdfs(input_path)} if input_path.exists() else {}
+    pdfs = ({extract.output_key(p): p for p in extract.collect_inputs(input_path, args.all_types)}
+            if input_path.exists() else {})
     raws = ({p.name[:-len(RAW_SUFFIX)]: p for p in out_dir.glob("*" + RAW_SUFFIX)}
             if out_dir.is_dir() else {})
     if input_path.is_file():
@@ -444,32 +606,43 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: no PDF in {input_path} and no {RAW_SUFFIX} in {out_dir}")
         return 2
 
-    missing = [stem for stem in stems if stem not in raws]
+    # a PDF source is never extracted just to be told it already is a PDF
+    skipped = [stem for stem in stems
+               if args.format == "pdf" and stem in pdfs and inputs.input_format(pdfs[stem]) == "pdf"]
+    work = [stem for stem in stems if stem not in skipped]
+    missing = [stem for stem in work if stem not in raws]
     extraction_log = ""
     if missing:
         out_dir.mkdir(parents=True, exist_ok=True)
         # nothing extracted yet -> one normal folder run; otherwise only the missing files,
         # so existing raw.json files are never re-extracted
-        whole_folder = not raws and input_path.is_dir()
+        whole_folder = not raws and not skipped and input_path.is_dir()
         targets = [input_path] if whole_folder else [pdfs[stem] for stem in missing]
         extraction_log = extract_missing(targets, out_dir, args)
 
-    exporter, suffix = EXPORTERS[args.format], FORMATS[args.format]
-    exported, extracted, stale, errors = 0, 0, [], []
-    for stem in stems:
+    suffix = FORMATS[args.format]
+    exported, extracted, stale, errors, notes = 0, 0, [], [], []
+    for stem in work:
         raw_path = out_dir / (stem + RAW_SUFFIX)
         if not raw_path.is_file():
             errors.append(f"{stem}: extraction failed (see {stem}.summary.json)")
             continue
         try:
             raw = json.loads(raw_path.read_text(encoding="utf-8"))
-            exporter(raw, out_dir / (stem + suffix))
+            target = out_dir / (stem + suffix)
+            source = pdfs.get(stem)
+            if source is not None and target == source:
+                raise ValueError("output would overwrite the source file; choose another --output")
+            reason, warnings = write_format(raw, args.format, target)
+            if reason:
+                skipped.append(stem)
+                continue
+            notes += [f"{stem}: {warning}" for warning in warnings]
             exported += 1
             extracted += stem in missing
-            pdf = pdfs.get(stem)
-            if pdf is not None and stem not in missing \
-                    and (raw.get("source") or {}).get("size_bytes") != pdf.stat().st_size:
-                stale.append(pdf.name)
+            if source is not None and stem not in missing \
+                    and (raw.get("source") or {}).get("size_bytes") != source.stat().st_size:
+                stale.append(source.name)
         except Exception as exc:
             errors.append(f"{stem}: {type(exc).__name__}: {exc}")
             (out_dir / (stem + suffix + ".tmp")).unlink(missing_ok=True)
@@ -479,8 +652,12 @@ def main(argv: list[str] | None = None) -> int:
     print(f"EXPORTED: {exported}")
     print(f"RAW_REUSED: {exported - extracted}")
     print(f"EXTRACTED: {extracted}")
+    if skipped:
+        print(f"SKIPPED: {len(skipped)} (already PDF: {', '.join(skipped[:5])})")
     if stale:
-        print(f"STALE_RAW: {', '.join(stale)} (PDF changed; run pdfjson to refresh)")
+        print(f"STALE_RAW: {', '.join(stale)} (source changed; run pdfjson to refresh)")
+    for note in notes[:10]:
+        print(f"WARNING: {note}")
     print(f"ERRORS: {len(errors)}")
     for error in errors[:10]:
         print(f"  {error}")

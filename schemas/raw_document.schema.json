@@ -2,96 +2,400 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "pdfstruct/raw_document.schema.json",
   "title": "PDFStruct raw document",
-  "description": "Raw, non-semantic extraction of one PDF. Coordinates are points, origin top-left, page rotation applied.",
+  "description": "Raw, non-semantic extraction of one input. Schema 1.0: PDF (coordinates are points, origin top-left, page rotation applied). Schema 1.1 (additive): other inputs, with input_format, paged, block kind and optional bbox.",
   "type": "object",
   "required": [
-    "schema_version", "tool", "fingerprint", "source", "source_file", "extraction_method",
-    "text_layer_score", "ocr_used", "coordinate_system", "page_count", "method_counts",
-    "review_pages", "warnings", "pages"
+    "schema_version",
+    "tool",
+    "fingerprint",
+    "source",
+    "source_file",
+    "extraction_method",
+    "text_layer_score",
+    "ocr_used",
+    "coordinate_system",
+    "page_count",
+    "method_counts",
+    "review_pages",
+    "warnings",
+    "pages"
   ],
   "properties": {
-    "schema_version": { "const": "1.0" },
+    "schema_version": {
+      "enum": [
+        "1.0",
+        "1.1"
+      ]
+    },
     "tool": {
       "type": "object",
-      "required": ["name", "version"],
-      "properties": { "name": { "type": "string" }, "version": { "type": "string" } }
-    },
-    "fingerprint": { "type": "string", "description": "Hash of source sha256 + extraction options; used for idempotent re-runs." },
-    "source": {
-      "type": "object",
-      "required": ["path", "file_name", "sha256", "size_bytes"],
+      "required": [
+        "name",
+        "version"
+      ],
       "properties": {
-        "path": { "type": "string" },
-        "file_name": { "type": "string" },
-        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-        "size_bytes": { "type": "integer", "minimum": 0 }
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
       }
     },
-    "source_file": { "type": "string" },
-    "extraction_method": { "enum": ["native", "ocr", "mixed", "none"] },
-    "text_layer_score": { "type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "Mean page score over non-blank pages; null if every page is blank." },
-    "ocr_used": { "type": "boolean" },
-    "ocr_engine": { "type": ["object", "null"] },
-    "coordinate_system": { "type": "object" },
-    "page_count": { "type": "integer", "minimum": 0 },
+    "fingerprint": {
+      "type": "string",
+      "description": "Hash of source sha256 + extraction options; used for idempotent re-runs."
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "path",
+        "file_name",
+        "sha256",
+        "size_bytes"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "file_name": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "source_file": {
+      "type": "string"
+    },
+    "extraction_method": {
+      "enum": [
+        "native",
+        "ocr",
+        "mixed",
+        "none"
+      ]
+    },
+    "text_layer_score": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Mean page score over non-blank pages; null if every page is blank."
+    },
+    "ocr_used": {
+      "type": "boolean"
+    },
+    "ocr_engine": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "coordinate_system": {
+      "type": "object"
+    },
+    "page_count": {
+      "type": "integer",
+      "minimum": 0
+    },
     "method_counts": {
       "type": "object",
-      "required": ["native", "ocr", "none", "error"],
-      "additionalProperties": { "type": "integer", "minimum": 0 }
+      "required": [
+        "native",
+        "ocr",
+        "none",
+        "error"
+      ],
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
     },
-    "review_pages": { "type": "array", "items": { "type": "integer", "minimum": 1 } },
-    "warnings": { "type": "array", "items": { "type": "string" } },
-    "pages": { "type": "array", "items": { "$ref": "#/$defs/page" } }
+    "review_pages": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "pages": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/page"
+      }
+    },
+    "input_format": {
+      "enum": [
+        "pdf",
+        "docx",
+        "txt",
+        "md",
+        "html",
+        "jpeg",
+        "png",
+        "tiff",
+        "bmp",
+        "webp"
+      ],
+      "description": "1.1 only. Absent means pdf."
+    },
+    "paged": {
+      "type": "boolean",
+      "description": "1.1 only. false = the source has no real pages (one logical page, no coordinates)."
+    }
   },
   "$defs": {
     "page": {
       "type": "object",
-      "required": ["page", "width", "height", "rotation", "method", "text_layer", "ocr_confidence", "needs_review", "warnings", "text", "blocks"],
+      "required": [
+        "page",
+        "width",
+        "height",
+        "rotation",
+        "method",
+        "text_layer",
+        "ocr_confidence",
+        "needs_review",
+        "warnings",
+        "text",
+        "blocks"
+      ],
       "properties": {
-        "page": { "type": "integer", "minimum": 1 },
-        "width": { "type": ["number", "null"] },
-        "height": { "type": ["number", "null"] },
-        "rotation": { "type": ["integer", "null"] },
-        "method": { "enum": ["native", "ocr", "none", "error"], "description": "none = page has no text (blank, or text layer empty and OCR not run/empty)." },
+        "page": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "width": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "height": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "rotation": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "method": {
+          "enum": [
+            "native",
+            "ocr",
+            "none",
+            "error"
+          ],
+          "description": "none = page has no text (blank, or text layer empty and OCR not run/empty)."
+        },
         "text_layer": {
-          "type": ["object", "null"],
+          "type": [
+            "object",
+            "null"
+          ],
           "description": "Quality of the native text layer, measured before any OCR decision.",
-          "required": ["score", "components", "chars", "bad_char_ratio", "block_count", "valid_bbox_ratio", "image_coverage", "object_count", "blank"],
+          "required": [
+            "score",
+            "components",
+            "chars",
+            "bad_char_ratio",
+            "block_count",
+            "valid_bbox_ratio",
+            "image_coverage",
+            "object_count",
+            "blank"
+          ],
           "properties": {
-            "score": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+            "score": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 1
+            },
             "components": {
-              "type": ["object", "null"],
+              "type": [
+                "object",
+                "null"
+              ],
               "properties": {
-                "density": { "type": "number" },
-                "unicode": { "type": "number" },
-                "bbox": { "type": "number" }
+                "density": {
+                  "type": "number"
+                },
+                "unicode": {
+                  "type": "number"
+                },
+                "bbox": {
+                  "type": "number"
+                }
               }
             },
-            "chars": { "type": "integer", "minimum": 0 },
-            "bad_char_ratio": { "type": "number", "minimum": 0, "maximum": 1 },
-            "block_count": { "type": "integer", "minimum": 0 },
-            "valid_bbox_ratio": { "type": "number", "minimum": 0, "maximum": 1 },
-            "image_coverage": { "type": "number", "minimum": 0, "maximum": 1 },
-            "object_count": { "type": "integer", "minimum": 0 },
-            "blank": { "type": "boolean" }
+            "chars": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "bad_char_ratio": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "block_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "valid_bbox_ratio": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "image_coverage": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "object_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "blank": {
+              "type": "boolean"
+            }
           }
         },
-        "ocr_confidence": { "type": ["number", "null"] },
-        "needs_review": { "type": "boolean" },
-        "warnings": { "type": "array", "items": { "type": "string" } },
-        "text": { "type": "string" },
-        "blocks": { "type": "array", "items": { "$ref": "#/$defs/block" } }
+        "ocr_confidence": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "needs_review": {
+          "type": "boolean"
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "text": {
+          "type": "string"
+        },
+        "blocks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/block"
+          }
+        }
       }
     },
     "block": {
       "type": "object",
-      "description": "Line-level text segment in extraction order.",
-      "required": ["text", "bbox", "order"],
+      "description": "Text segment in extraction order: a line (PDF, OCR) or a structural element.",
+      "required": [
+        "text",
+        "order"
+      ],
       "properties": {
-        "text": { "type": "string" },
-        "bbox": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 },
-        "order": { "type": "integer", "minimum": 0 },
-        "confidence": { "type": "number", "description": "OCR blocks only." }
+        "text": {
+          "type": "string"
+        },
+        "bbox": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4,
+          "description": "Required in schema 1.0. Absent for unpaged inputs."
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "confidence": {
+          "type": "number",
+          "description": "OCR blocks only."
+        },
+        "kind": {
+          "enum": [
+            "line",
+            "paragraph",
+            "heading",
+            "list_item",
+            "table_row",
+            "code"
+          ]
+        },
+        "level": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "heading / list_item depth"
+        },
+        "ordered": {
+          "type": "boolean",
+          "description": "list_item of a numbered list"
+        },
+        "cells": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "table_row cells"
+        },
+        "table": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "table_row: index of its table"
+        }
+      }
+    }
+  },
+  "if": {
+    "properties": {
+      "schema_version": {
+        "const": "1.0"
+      }
+    }
+  },
+  "then": {
+    "properties": {
+      "pages": {
+        "items": {
+          "properties": {
+            "blocks": {
+              "items": {
+                "required": [
+                  "text",
+                  "bbox",
+                  "order"
+                ]
+              }
+            }
+          }
+        }
       }
     }
   }

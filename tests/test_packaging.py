@@ -18,7 +18,7 @@ SCRIPTS_DIR = Path(sysconfig.get_path("scripts"))  # venv: next to python; syste
 
 
 def test_import_and_single_version():
-    assert pdfstruct.__version__ == "0.1.0"
+    assert pdfstruct.__version__ == "0.2.0"
     assert metadata.version("pdfstruct") == pdfstruct.__version__  # package is installed
     assert extract.TOOL_VERSION == pdfstruct.__version__
     assert extract.TOOL_NAME == "pdfstruct"
@@ -29,8 +29,9 @@ def test_console_entry_points_declared():
     scripts = {ep.name: ep.value for ep in metadata.distribution("pdfstruct").entry_points
                if ep.group == "console_scripts"}
     assert scripts.pop("pdfstruct") == "pdfstruct.cli:main"
+    assert scripts.pop("pdfstruct-mcp") == "pdfstruct.mcp_server:main"
     assert scripts == {name: f"pdfstruct.cli:{name}" for name in ALIASES}
-    assert [f"pdf{c}" for c in cli.COMMANDS] == ALIASES
+    assert [f"pdf{c}" for c in cli.ALIAS_COMMANDS] == ALIASES  # no alias for --format pdf
     for name in ALIASES:
         assert callable(getattr(cli, name))
 

@@ -13,7 +13,8 @@ import sys
 from pathlib import Path
 
 FORMAT_LABELS = {"json": "JSON", "html": "HTML", "txt": "TXT", "md": "Markdown", "csv": "CSV",
-                 "xlsx": "XLSX", "docx": "DOCX", "jsonl": "JSONL", "sqlite": "SQLite"}
+                 "xlsx": "XLSX", "docx": "DOCX", "jsonl": "JSONL", "sqlite": "SQLite",
+                 "pdf": "PDF"}
 
 
 # ---------------------------------------------------------------- terminal
@@ -149,8 +150,9 @@ def _write(text: str) -> None:
 # ---------------------------------------------------------------- session
 
 def find_pdfs(folder: Path) -> list[Path]:
-    from .cli import find_pdfs as _find
-    return _find(folder)
+    """Every supported input directly inside the folder (the menu lets the user choose)."""
+    from .cli import find_inputs
+    return find_inputs(folder, all_types=True)
 
 
 def choose_pdfs(folder: Path, read_key, write, read_line) -> tuple[str, Path, list[Path]]:
@@ -159,7 +161,7 @@ def choose_pdfs(folder: Path, read_key, write, read_line) -> tuple[str, Path, li
     while True:
         pdfs = find_pdfs(folder)
         if not pdfs:
-            write(f"No PDF files found in:\n{folder}\n\n[P] Choose another folder\n[Q] Quit\n")
+            write(f"No supported files found in:\n{folder}\n\n[P] Choose another folder\n[Q] Quit\n")
             while True:
                 key = read_key()
                 if key in ("q", "esc"):
@@ -174,7 +176,7 @@ def choose_pdfs(folder: Path, read_key, write, read_line) -> tuple[str, Path, li
             else:
                 write(f"Not a folder: {candidate}\n\n")
             continue
-        menu = Menu(f"Current folder:\n{folder}\n\nSelect PDF files:",
+        menu = Menu(f"Current folder:\n{folder}\n\nSelect files:",
                     [p.name for p in pdfs], selected=range(len(pdfs)) if len(pdfs) == 1 else ())
         status, picked = menu.run(read_key, write)
         if status == "quit":
@@ -184,13 +186,13 @@ def choose_pdfs(folder: Path, read_key, write, read_line) -> tuple[str, Path, li
 
 def choose_formats(count: int, read_key, write, allow_back: bool) -> tuple[str, list[str]]:
     keys = list(FORMAT_LABELS)
-    menu = Menu(f"Selected: {count} PDF{'s' if count != 1 else ''}\n\nSelect output formats:",
+    menu = Menu(f"Selected: {count} file{'s' if count != 1 else ''}\n\nSelect output formats:",
                 [FORMAT_LABELS[k] for k in keys], selected=[0], confirm="Convert", allow_back=allow_back)
     status, picked = menu.run(read_key, write)
     return (status, [keys[i] for i in picked] if picked else [])
 
 
-def session(cwd: Path, target: Path | None, out_dir: Path | None, options: list[str],
+def session(cwd: Path, target: Path | None, out_dir: Path | None, options: dict,
             read_key=read_key, write=None, read_line=None) -> int:
     """The whole interactive flow. Returns an exit code."""
     from . import __version__

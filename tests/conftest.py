@@ -69,3 +69,56 @@ def run_tool():
 def ocr_available() -> bool:
     from pdfstruct import ocr
     return ocr.available()
+
+
+# ---------------------------------------------------------------- non-PDF fixtures
+
+UNICODE_LINE = "Çağrı Öğretmen İstanbul ığüşöç – Straße größer Ärger"
+
+
+def make_docx(path: Path) -> Path:
+    from docx import Document
+
+    document = Document()
+    document.add_heading("Quartalsbericht", level=1)
+    document.add_paragraph(UNICODE_LINE)
+    document.add_heading("Aufgaben", level=2)
+    document.add_paragraph("Erster Punkt", style="List Bullet")
+    document.add_paragraph("Zweiter Punkt", style="List Bullet")
+    document.add_paragraph("Schritt eins", style="List Number")
+    table = document.add_table(rows=2, cols=3)
+    for r, row in enumerate([["Name", "Menge", "Preis"], ["Apfel", "3", "1,20"]]):
+        for c, value in enumerate(row):
+            table.cell(r, c).text = value
+    document.add_paragraph("Schlussabsatz nach der Tabelle.")
+    document.save(str(path))
+    return path
+
+
+def make_image(path: Path, lines=("Gescannte Seite", "Hallo Welt Beispiel", "Rechnung Nummer 12345"),
+               size=(1240, 700), **save_options) -> Path:
+    image = Image.new("RGB", size, "white")
+    draw = ImageDraw.Draw(image)
+    try:
+        font = ImageFont.truetype("arial.ttf", 44)
+    except OSError:
+        font = ImageFont.load_default(size=44)
+    for row, line in enumerate(lines):
+        draw.text((80, 90 + row * 110), line, fill="black", font=font)
+    image.save(str(path), **save_options)
+    return path
+
+
+def make_tiff(path: Path, pages=("Erste Seite Alpha", "Zweite Seite Beta")) -> Path:
+    frames = []
+    for text in pages:
+        frame = Image.new("RGB", (1000, 500), "white")
+        draw = ImageDraw.Draw(frame)
+        try:
+            font = ImageFont.truetype("arial.ttf", 48)
+        except OSError:
+            font = ImageFont.load_default(size=48)
+        draw.text((80, 180), text, fill="black", font=font)
+        frames.append(frame)
+    frames[0].save(str(path), save_all=True, append_images=frames[1:])
+    return path

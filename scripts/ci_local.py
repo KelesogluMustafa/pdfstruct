@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """PDFStruct local CI: one command that checks import, tests, build, a clean
-wheel install, every console script and a small end-to-end run.
+wheel install, every console script, end-to-end runs for the input types, the
+optional extras (desktop window without a display, MCP server over stdio) and the
+skill archive.
 
     python scripts/ci_local.py          (from the repository root, inside the dev venv)
 
@@ -96,9 +98,21 @@ def step_build(version: str) -> tuple[Path, Path]:
         declared = wheel.read(entry_points).decode()
         missing = [s for s in SCRIPTS if f"{s} = pdfstruct.cli:" not in declared]
         for required in ("pdfstruct/__init__.py", "pdfstruct/cli.py", "pdfstruct/extract.py",
-                         "pdfstruct/export.py", "pdfstruct/ocr.py"):
+                         "pdfstruct/export.py", "pdfstruct/ocr.py", "pdfstruct/service.py",
+                         "pdfstruct/pdfwriter.py", "pdfstruct/mcp_server.py",
+                         "pdfstruct/inputs/__init__.py", "pdfstruct/inputs/image.py",
+                         "pdfstruct/gui/app.py", "pdfstruct/gui/window.py"):
             if required not in names:
                 missing.append(required)
+        for extra in ("pdfstruct-mcp = pdfstruct.mcp_server:main",
+                      "pdfstruct-gui = pdfstruct.gui.app:main"):
+            if extra not in declared:
+                missing.append(extra)
+        heavy = [n for n in names if n.lower().endswith(
+            (".ttf", ".otf", ".pdmodel", ".pdiparams", ".onnx", ".pdf", ".raw.json", ".dll", ".exe"))]
+        if heavy:
+            raise StepFailed("the wheel must not carry fonts, models, documents or binaries: "
+                             + ", ".join(heavy[:5]))
     with tarfile.open(sdists[0]) as sdist:
         names = sdist.getnames()
         for required in ("pyproject.toml", "src/pdfstruct/__init__.py", "README.md", "LICENSE"):
@@ -142,6 +156,68 @@ def make_fixture(folder: Path) -> Path:
     return make_text_pdf(folder / "belge (ä).pdf", pages=2)
 
 
+def step_extras(wheel: Path, venv: Path, work: Path) -> str:
+    """Install the wheel with [gui,mcp] into the clean venv; open the window without a
+    display and talk to the MCP server over stdio."""
+    sh(venv_python(venv), "-m", "pip", "install", "-q", f"{wheel}[gui,mcp]", timeout=1800)
+    for name in ("pdfstruct-gui", "pdfstruct-mcp"):
+        if not script_path(venv, name).is_file():
+            raise StepFailed(f"{name} entry point not installed")
+
+    gui_env = dict(ENV, QT_QPA_PLATFORM="offscreen")
+    done = subprocess.run([str(venv_python(venv)), "-m", "pdfstruct.gui.app", "--smoke-test"],
+                          cwd=work, env=gui_env, capture_output=True, text=True, encoding="utf-8",
+                          errors="replace", timeout=180)
+    line = next((l for l in done.stdout.splitlines() if l.startswith("GUI_SMOKE ")), None)
+    if done.returncode != 0 or line is None:
+        raise StepFailed(f"gui smoke: exit {done.returncode}\n{done.stdout}\n{done.stderr}")
+    gui = json.loads(line[len("GUI_SMOKE "):])
+    if not (gui["visible"] and gui["closed"]) or gui["ocr_loaded"] or len(gui["formats"]) != 10:
+        raise StepFailed(f"gui smoke reported: {gui}")
+
+    note = work / "mcp notiz.txt"
+    note.write_text("MCP-GEHEIM Inhalt " * 300, encoding="utf-8")
+    client = work / "mcp_client.py"
+    client.write_text(MCP_CLIENT, encoding="utf-8")
+    out = sh(venv_python(venv), client, note, cwd=work, timeout=600)
+    answer = json.loads(out.strip().splitlines()[-1])
+    if answer["tools"] != ["convert", "inspect", "read_excerpt", "search", "supported_formats"]:
+        raise StepFailed(f"mcp tools: {answer['tools']}")
+    if not answer["converted_ok"] or answer["leaked_text"] or answer["excerpt_chars"] != 2000:
+        raise StepFailed(f"mcp answer: {answer}")
+    if not (work / "output" / "mcp notiz.txt.pdf").is_file():
+        raise StepFailed("mcp convert did not write the pdf output")
+    return f"PASS (gui {gui['platform']}, mcp stdio)"
+
+
+MCP_CLIENT = '''
+import asyncio, json, sys
+import mcp
+from mcp.client.stdio import StdioServerParameters
+
+async def main(path):
+    params = StdioServerParameters(command=sys.executable, args=["-m", "pdfstruct.mcp_server"])
+    async with mcp.Client(params) as client:
+        tools = sorted(t.name for t in (await client.list_tools()).tools)
+        converted = (await client.call_tool("convert", {"paths": [path], "formats": ["pdf", "json"]})).content[0].text
+        excerpt = json.loads((await client.call_tool(
+            "read_excerpt", {"path_or_output": path, "max_chars": 500000})).content[0].text)
+    print(json.dumps({"tools": tools, "converted_ok": json.loads(converted)["ok"],
+                      "leaked_text": "MCP-GEHEIM" in converted,
+                      "excerpt_chars": excerpt["chars_returned"]}))
+
+asyncio.run(main(sys.argv[1]))
+'''
+
+
+def step_skill() -> str:
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import build_skill_zip
+    target = build_skill_zip.build()
+    names = build_skill_zip.check(target)
+    return f"PASS ({target.name}, {len(names)} file)"
+
+
 def step_native(venv: Path, work: Path) -> None:
     pdf = make_fixture(work)
     # bare `pdfstruct` is interactive; without a terminal it must exit 2 at once, never hang
@@ -164,6 +240,21 @@ def step_native(venv: Path, work: Path) -> None:
         raise StepFailed("txt export lost umlauts or pages:\n" + text[:500])
     out = sh(script_path(venv, "pdfstruct"), "--format", "md", pdf, cwd=work)
     if "EXPORTED: 1" not in out or not (work / "output" / "belge (ä).md").is_file():
+        raise StepFailed(out)
+    # other inputs and the PDF output, through the installed commands
+    note = work / "not (ğ).txt"
+    note.write_text("Çağrı Öğretmen İstanbul\n\nStraße größer", encoding="utf-8")
+    page = work / "seite.html"
+    page.write_text("<h1>Titel</h1><p>Absatz</p><script>x()</script>", encoding="utf-8")
+    out = sh(script_path(venv, "pdfstruct"), note, "--format", "pdf,docx,json", cwd=work)
+    produced = work / "output" / "not (ğ).txt.pdf"
+    if out.count("\u2713") != 3 or not produced.read_bytes().startswith(b"%PDF-"):
+        raise StepFailed(out)
+    out = sh(script_path(venv, "pdfxlsx"), page, cwd=work)
+    if "EXPORTED: 1" not in out or not (work / "output" / "seite.html.xlsx").is_file():
+        raise StepFailed(out)
+    out = sh(script_path(venv, "pdfstruct"), pdf, "--format", "pdf", cwd=work)
+    if "SKIPPED: 1 (already PDF" not in out or (work / "output" / "belge (ä).pdf").exists():
         raise StepFailed(out)
 
 
@@ -255,7 +346,8 @@ def main() -> int:
             report("WHEEL INSTALL", "SKIPPED (no wheel)")
         for label, step in (("CLI", lambda: step_cli(venv, version)),
                             ("NATIVE", lambda: step_native(venv, work) or "PASS"),
-                            ("OCR", lambda: step_ocr(venv, work))):
+                            ("OCR", lambda: step_ocr(venv, work)),
+                            ("EXTRAS", lambda: step_extras(wheel, venv, work))):
             if not installed:
                 report(label, "SKIPPED (wheel not installed)")
                 continue
@@ -264,6 +356,11 @@ def main() -> int:
             except Exception as exc:
                 fail(label, exc)
 
+
+    try:
+        report("SKILL", step_skill())
+    except Exception as exc:
+        fail("SKILL", exc)
 
     print(f"\nRESULT: {'FAIL' if failed else 'PASS'}  ({time.time() - started:.0f}s)")
     for label, text in details:

@@ -1,7 +1,7 @@
 # PDFStruct — Master Architecture & Development Constitution
 
 > **Status:** Active project source of truth  
-> **Current public release:** v0.1.0  
+> **Current public release:** v0.2.0  
 > **Project:** PDFStruct  
 > **Repository:** https://github.com/KelesogluMustafa/pdfstruct  
 > **Website:** https://mustafakelesoglu.de/pdfstruct  
@@ -986,7 +986,11 @@ This roadmap is directional, not a command to implement everything now.
 - public GitHub release
 - project website
 
-## v0.2 — Desktop GUI
+## v0.2 — Desktop GUI (released as 0.2.0)
+
+Delivered: shared service, multi-format inputs, PDF output, PySide6 window, local MCP server,
+Agent Skill, Windows portable folder. Still open from the list below: Setup.exe and the macOS
+`.app` / `.dmg`.
 
 Primary target:
 
@@ -1003,17 +1007,15 @@ Primary target:
 - portable Windows package if practical
 - macOS `.app` / `.dmg`
 
-Do not add unrelated document formats until GUI baseline is stable.
+Owner decision (2026-10-07): v0.2 also carries the shared conversion service, the first
+non-PDF inputs, PDF output, the local MCP server and the Agent Skill. See section 35.
+Installers (Setup.exe, DMG, signing) stay optional proofs and must not block the core.
 
 ## v0.3 — More inputs
 
-Candidate scope:
+DOCX, image, TXT, Markdown and HTML inputs moved into v0.2 (section 35).
 
-- DOCX input
-- PNG/JPG/TIFF input
-- possibly TXT/Markdown/HTML adapters
-
-Reuse common document model.
+Remaining candidates: CSV/XLSX input, RTF/ODT, EPUB, HEIC. Reuse the common document model.
 
 ## v0.4 — PDF utilities
 
@@ -1422,6 +1424,63 @@ The long-term shape should remain:
 ```
 
 If a new feature cannot fit this model, first ask whether it truly belongs in PDFStruct.
+
+---
+
+# 35. v0.2 working decisions (2026-10-07)
+
+These decisions refine sections 5-14 for the v0.2 work. They are part of the source of truth.
+
+## 35.1 One callable service
+
+```text
+Input adapter -> raw document (schema 1.0 / 1.1) -> service.run_job -> exporters -> CLI / GUI / MCP
+```
+
+- `pdfstruct.service.run_job(request, on_event=None, cancel=None) -> JobResult` is the only
+  conversion entry point for interfaces. CLI front ends, the GUI and the MCP server call it;
+  none of them parses another one's terminal output or owns conversion logic.
+- One input is extracted once per job; every selected format is written from that result.
+- One `OcrEngine` lives for the whole job and is loaded only when a page needs OCR.
+- Results carry status, counts, paths, at most five short warnings and a short error. Never text.
+- Progress events are real steps (file, phase, page, export). No invented percentages.
+- Cancel is cooperative: checked between files, pages and exports. A running native or OCR
+  call finishes first.
+
+## 35.2 Inputs and outputs
+
+Inputs: PDF, DOCX, TXT, Markdown, HTML, JPG/JPEG, PNG, TIFF, BMP, WebP.
+Outputs: JSON, HTML, TXT, Markdown, CSV, XLSX, DOCX, JSONL, SQLite and PDF.
+
+- Adapters live in `pdfstruct/inputs/` and only produce raw page records. No adapter exports.
+- PDF keeps its existing extraction and writes schema 1.0 unchanged. Other inputs write the
+  additive schema 1.1: `input_format`, `paged`, block `kind`, optional `level`, optional `bbox`.
+- Images go straight to the existing OCR layer (no intermediate PDF). Unpaged inputs carry no
+  invented coordinates and exporters print no "Page 1" heading for them.
+- File names: a PDF keeps `<stem>.<ext>`; every other input uses `<file name>.<ext>`
+  (`report.docx.raw.json`), so `report.pdf` and `report.docx` never overwrite each other.
+- A source file is never overwritten. PDF to PDF is reported as skipped (`already_pdf`).
+
+## 35.3 Honest format limits
+
+- CSV/XLSX are block listings, not reconstructed tables. DOCX/HTML tables are not marketed as
+  semantic spreadsheets.
+- Image to DOCX/Markdown/HTML is OCR text only. Text PDF output is a readable re-flow, not a
+  pixel-faithful rendering of the source; DOCX to PDF layout fidelity is not promised.
+- Same-format round trips (DOCX to DOCX, MD to MD, TXT to TXT, HTML to HTML) lose styling and are
+  reported with a warning. OCR options on text inputs are reported, not silently ignored.
+
+## 35.4 Interfaces and token-saving operation
+
+- CLI: unchanged commands and aliases; `pdfstruct --format pdf` is the tenth format.
+- GUI: PySide6, optional extra `[gui]`, entry point `pdfstruct-gui`. A normal CLI run never
+  imports Qt, and opening the window never loads OCR.
+- MCP: optional extra `[mcp]`, local stdio server. Conversions run in a short-lived child
+  process so OCR output cannot corrupt the protocol and OCR memory is released afterwards.
+  Tools return paths and counts; document text is returned only by `read_excerpt`/`search`,
+  capped, on explicit request, and labelled as untrusted data.
+- Agent Skill: `skills/pdfstruct/SKILL.md`. Instructions only (MCP first, CLI fallback); no
+  engine, no models.
 
 ---
 

@@ -86,7 +86,7 @@ def test_no_argument_lists_pdfs_and_converts_one(tmp_path):
                              "down", "down", "down", "down", "down", "space", "enter")
     assert code == 0 and not keys.keys
     assert "contract.pdf" in text and "invoice.pdf" in text and "deep.pdf" not in text
-    assert "Selected: 1 PDF" in text and "✓ JSON" in text and "✓ XLSX" in text and "Done." in text
+    assert "Selected: 1 file" in text and "✓ JSON" in text and "✓ XLSX" in text and "Done." in text
     assert outputs(tmp_path) == {"invoice.raw.json", "invoice.xlsx"}  # sorted: contract, invoice, report
 
 
@@ -104,9 +104,10 @@ def test_multiple_pdfs_and_select_all_formats_extract_once(tmp_path, monkeypatch
     code, text, _ = drive(tmp_path, "a", "enter", "a", "enter")
     assert code == 0
     assert sorted(calls) == ["a.pdf", "b.pdf", "c.pdf"]  # once per PDF, not per format
-    assert text.count("✓") == 3 * len(FORMAT_KEYS)
-    assert len(outputs(tmp_path)) == 3 * len(FORMAT_KEYS)
-    assert "Selected: 3 PDFs" in text
+    written = len(FORMAT_KEYS) - 1  # every format except PDF: the inputs already are PDFs
+    assert text.count("✓") == 3 * written and text.count("skipped (already_pdf)") == 3
+    assert len(outputs(tmp_path)) == 3 * written
+    assert "Selected: 3 files" in text
 
 
 def test_single_pdf_is_preselected_and_json_only(tmp_path):
@@ -122,7 +123,7 @@ def test_file_argument_skips_file_menu(tmp_path):
     code, text, _ = drive(tmp_path, "space", "down", "down", "space", "down", "space", "enter",
                           argv=["doc.pdf"])
     assert code == 0
-    assert "Select PDF files" not in text and "B       Back" not in text
+    assert "Select files" not in text and "B       Back" not in text
     assert outputs(tmp_path) == {"doc.raw.json", "doc.txt", "doc.md"}
 
 
@@ -132,7 +133,7 @@ def test_directory_argument_opens_file_menu(tmp_path):
     make_text_pdf(folder / "x.pdf")
     make_text_pdf(folder / "y.pdf")
     code, text, _ = drive(tmp_path, "down", "space", "enter", "enter", argv=[str(folder)])
-    assert code == 0 and "Select PDF files" in text
+    assert code == 0 and "Select files" in text
     assert outputs(folder) == {"y.raw.json"}
     assert not (tmp_path / "output").exists()
 
@@ -143,7 +144,7 @@ def test_back_and_quit(tmp_path):
     # formats menu -> back -> file menu again -> quit
     code, text, keys = drive(tmp_path, "space", "enter", "b", "q")
     assert code == 1 and "Cancelled." in text and not keys.keys
-    assert text.rindex("Select PDF files") > text.index("Select output formats")  # back worked
+    assert text.rindex("Select files") > text.index("Select output formats")  # back worked
     assert not (tmp_path / "output").exists()
     code, text, _ = drive(tmp_path, "esc")
     assert code == 1 and "Cancelled." in text
@@ -153,7 +154,7 @@ def test_no_pdfs_offers_other_folder_or_quit(tmp_path):
     (tmp_path / "docs").mkdir()
     make_text_pdf(tmp_path / "docs" / "d.pdf")
     code, text, _ = drive(tmp_path, "q")
-    assert code == 1 and "No PDF files found in:" in text and str(tmp_path) in text
+    assert code == 1 and "No supported files found in:" in text and str(tmp_path) in text
     code, text, _ = drive(tmp_path, "p", "p", "enter", "enter", lines=["nope", "docs"])
     assert code == 0 and "Not a folder" in text
     assert outputs(tmp_path / "docs") == {"d.raw.json"}
