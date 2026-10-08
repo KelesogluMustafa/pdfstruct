@@ -1,569 +1,265 @@
+<p align="center">
+  <img src="docs/assets/pdfstruct-hero.png" alt="PDFStruct: PDF, DOCX and image files are converted on your computer into JSON, XLSX, PDF and other formats" width="820">
+</p>
+
 # PDFStruct
 
-PDFStruct converts documents locally: PDF, DOCX, TXT, Markdown, HTML and images go in;
-JSON, HTML, TXT, Markdown, CSV, XLSX, DOCX, JSONL, SQLite and PDF come out. It reads native
-text when it exists and uses OCR when a page needs it. Nothing is uploaded.
+**PDFStruct converts documents on your computer into structured data and ten output formats, without uploading them.**
 
-One engine, four ways to use it:
+Your document stays on your computer. PDFStruct does the text extraction, OCR and conversion
+there, and Claude can use the result without loading the whole document into the conversation.
 
-| | Start with | For |
-|---|---|---|
-| Desktop window | `pdfstruct-gui` | drag files in, tick formats, Convert |
-| Terminal menu | `pdfstruct` | pick files and formats with the keyboard |
-| Scripts | `pdfstruct file --format xlsx`, `pdfjson file` | automation, no prompts |
-| Claude | local MCP server + Agent Skill | conversions without the document entering the chat |
+[![Latest release](https://img.shields.io/github/v/release/KelesogluMustafa/pdfstruct)](https://github.com/KelesogluMustafa/pdfstruct/releases/latest)
+[![CI](https://github.com/KelesogluMustafa/pdfstruct/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/KelesogluMustafa/pdfstruct/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Python 3.10 to 3.13](https://img.shields.io/badge/python-3.10%20to%203.13-blue.svg)
 
-## Install
+**[Download for Windows](https://github.com/KelesogluMustafa/pdfstruct/releases/latest)** ·
+**[Download Portable](#portable-quick-start)** ·
+**[View Website](https://mustafakelesoglu.de/en/pdfstruct)** ·
+**[Add to Claude](#claude-desktop-setup)** ·
+**[CLI Quick Start](#cli-quick-start)** ·
+**[Documentation](#documentation)**
 
-Not on PyPI yet. Install from a checkout or from the wheel of a
-[GitHub release](https://github.com/KelesogluMustafa/pdfstruct/releases/latest).
-
-**Windows, for daily use (and for Claude).** Download `PDFStruct-Windows-Setup-<version>.zip`
-from the release, unpack it and run `install-windows.cmd`. It creates
-`%USERPROFILE%\.local\pdfstruct\v<version>` with its own Python environment, installs the wheel
-from the ZIP (checksum verified), checks the result (import, command line, MCP server) and then
-points `%USERPROFILE%\.local\pdfstruct\current` at it. The install is not linked to any source
-folder, other installed versions are kept, and the system Python packages are not touched. It
-needs Python 3.10–3.13 from python.org. See [Choose your integration](#choose-your-integration).
-
-**Windows, for working on the code.** `setup-windows.cmd` creates `.venv` inside the repository
-and installs it in editable mode, then opens the window. Do not point Claude at that
-environment: a running MCP server keeps its files locked and follows whatever the working tree
-contains.
-
-**Any platform, with pip** (Windows, macOS, Linux):
-
-```
-python -m venv .venv
-.venv\Scripts\activate            (macOS/Linux: source .venv/bin/activate)
-pip install -e ".[gui,mcp]"       (from a release: pip install "pdfstruct-<version>-py3-none-any.whl[gui,mcp]")
-```
-
-`[gui]` adds the desktop window (PySide6), `[mcp]` the MCP server. Leave them out for the
-command line only. The OCR packages are installed automatically on Windows x86_64,
-Linux x86_64 and macOS Apple Silicon with Python 3.9–3.13; the first OCR run downloads the two
-models once (about 70 MB) to `~/.pdfstruct/models`.
-
-## Choose your integration
-
-Everything uses the same PDFStruct on your computer. Install it first, then add what you need.
-
-| You want | Install |
+| | File on the [latest release](https://github.com/KelesogluMustafa/pdfstruct/releases/latest) |
 |---|---|
-| **CLI only** (terminal, desktop window) | 1 |
-| **Claude Code / Cowork** | 1, then 3 |
-| **Claude Desktop chat** | 1, then 2 |
-| **Both** | 1, 2 and 3 |
+| **Recommended** | `PDFStruct-Windows-Setup-0.2.1.zip` |
+| **No Python** | `PDFStruct-Portable-0.2.1-win64.zip` |
 
-1. **`install-windows.cmd`** (from `PDFStruct-Windows-Setup-<version>.zip`): PDFStruct itself.
-2. **`pdfstruct-<version>.mcpb`**: Claude Desktop extension. Settings, Extensions, Advanced
-   settings, Install Extension. It is a launcher for step 1 and contains no copy of PDFStruct;
-   installing only the `.mcpb` on a computer without step 1 does not work.
-3. **`pdfstruct-plugin.zip`**: Claude Code / Cowork plugin. It brings the skill and registers
-   the same MCP server. In Claude Code you can also run `claude --plugin-dir <unpacked folder>`.
+## Contents
 
-`pdfstruct-skill.zip` is the skill alone, for people who do not use the plugin (for example
-Claude Desktop chat with only the extension). **If you install the plugin, do not also upload
-the skill ZIP**: the plugin already contains the same skill, and Claude would list it twice.
-The same goes for a hand-made `claude mcp add ... pdfstruct` registration or a copy of the skill
-in `%USERPROFILE%\.claude\skills\pdfstruct`: remove them once the plugin works.
+[Why PDFStruct](#why-pdfstruct) ·
+[How it works](#how-it-works) ·
+[Supported formats](#supported-formats) ·
+[Choose your installation](#choose-your-installation) ·
+[Windows Setup](#windows-setup-quick-start) ·
+[Portable](#portable-quick-start) ·
+[Claude Desktop](#claude-desktop-setup) ·
+[Claude Code / Cowork](#claude-code--cowork-setup) ·
+[CLI](#cli-quick-start) ·
+[Privacy and tokens](#privacy-and-llm-context) ·
+[Limitations](#important-limitations) ·
+[Documentation](#documentation) ·
+[Status](#platform-and-project-status) ·
+[Contributing](#contributing-and-support) ·
+[License](#license)
 
-The plugin and the extension both start
-`%USERPROFILE%\.local\pdfstruct\current\Scripts\pdfstruct-mcp.exe`. `current` is a link to the
-active version, so neither names a version or a source folder, and neither depends on a
-development checkout.
+## Why PDFStruct
 
-| Task | How |
+- **Nothing is uploaded.** Extraction, OCR and conversion run on your computer. No account,
+  no payment, no telemetry, no usage limit.
+- **Scans and mixed documents work.** Pages with real text are read directly; pages that are
+  only a picture go through OCR.
+- **One read, many formats.** Ask for XLSX, JSON and PDF together: the file is processed once.
+- **Repeatable.** The same command gives the same result, for one file or a whole folder.
+- **Built for Claude.** Claude starts the conversion and gets back a short status and the
+  output paths, not the document.
+
+It is for people who care where their documents go, developers building document workflows,
+Claude Desktop, Claude Code and Cowork users, and anyone converting scanned or mixed files in
+batches.
+
+## How it works
+
+```
+Document
+  -> native text, when the page has it
+  -> OCR, when the page needs it
+  -> one structured result
+  -> the output formats you selected
+```
+
+- The decision between native text and OCR is made **per page**.
+- A mixed PDF can therefore use both in the same document.
+- Pages with low OCR confidence are listed for review instead of being passed off as good.
+- Every format you ask for is written from that single result.
+
+## Supported formats
+
+| Inputs | Outputs |
 |---|---|
-| Update | `update-windows.cmd`: shows the active and the latest stable version and asks before it downloads. The new version is installed next to the old one, checked, and only then made active. Nothing runs in the background. |
-| Only check | `update-windows.cmd -Check` |
-| Go back | `update-windows.cmd -Rollback` switches to the previously active version, which is always kept. `update-windows.cmd -List` shows what is installed. |
-| After an update | Restart Claude. The plugin and the extension follow `current` and need no reinstall. Install a newer `.mcpb` or plugin by hand only when a release says they changed. |
-| Disable | Switch the extension or the plugin off in Claude. Nothing is deleted. |
-| Uninstall | Remove the extension and the plugin in Claude, then delete `%USERPROFILE%\.local\pdfstruct` (remove the `current` link first: `rmdir current`). |
+| PDF | JSON |
+| DOCX | HTML |
+| TXT | TXT |
+| Markdown | Markdown |
+| HTML | CSV |
+| JPG / JPEG | XLSX |
+| PNG | DOCX |
+| TIFF / TIF | JSONL |
+| BMP | SQLite |
+| WebP | PDF |
 
-## Formats
+Any input can go to any output, with one exception: a PDF is not written again as PDF.
+Each input is processed once, and all selected outputs come from that one result.
 
-| Input | Read as |
+## Choose your installation
+
+| Goal | Use |
 |---|---|
-| PDF | native text per page; OCR only for pages without a usable text layer |
-| JPG/JPEG, PNG, TIFF/TIF, BMP, WebP | OCR (multi-page TIFF: one page per frame, EXIF orientation applied) |
-| DOCX | paragraphs, headings, list items, simple tables, in document order |
-| TXT, Markdown (`.md`, `.markdown`) | text; Markdown headings, lists and code blocks |
-| HTML (`.html`, `.htm`) | visible text of the local file; no scripts, no network |
+| Recommended Windows installation | `PDFStruct-Windows-Setup-0.2.1.zip` |
+| Desktop window and command line without Python | `PDFStruct-Portable-0.2.1-win64.zip` |
+| Claude Desktop chat | Windows Setup + `pdfstruct-0.2.1.mcpb` (+ `pdfstruct-skill.zip` if you do not use the plugin) |
+| Claude Code / Cowork | Windows Setup + `pdfstruct-plugin.zip` |
+| Development, macOS, Linux | The wheel or a source checkout: see [Installation](docs/INSTALLATION.md) |
 
-Outputs: `json` (the raw document), `html`, `txt`, `md`, `csv`, `xlsx`, `docx`, `jsonl`,
-`sqlite`, `pdf`. Every input is read once; all formats you ask for come from that one result.
+Good to know:
 
-Files go to an `output` folder next to each input (or to `--output`). `report.pdf` writes
-`report.<ext>` as before; every other input keeps its extension (`report.docx` writes
-`report.docx.<ext>`), so files with the same name never overwrite each other. A source file is
-never overwritten.
+- Setup and Portable are alternatives for ordinary conversion. You need only one.
+- **Claude integrations require Windows Setup.** Portable does not include the MCP server.
+- The `.mcpb`, the plugin and the skill ZIP contain no PDFStruct runtime. They start the one
+  that Windows Setup installed.
+- The plugin already contains the skill and the MCP registration. If you use the plugin, do
+  not install the skill ZIP or register the MCP server a second time.
 
-### What the formats do not do
+## Windows Setup quick start
 
-- `csv` and `xlsx` list text blocks, one per row. They are not reconstructed tables, also when
-  the source is a DOCX or HTML table.
-- `pdf` from DOCX, TXT, Markdown or HTML is a readable re-flow on A4 (headings, paragraphs,
-  lists, simple tables), not the layout of the source. Pixel-faithful DOCX to PDF is not a goal.
-- `pdf` from an image is the picture fitted to the page with the recognised text placed
-  invisibly on top, so it can be searched. A PDF input is not written again as PDF
-  (reported as `already_pdf`).
-- Image to DOCX/Markdown/HTML contains the recognised text only.
-- Same-format round trips (DOCX to DOCX, Markdown to Markdown, ...) keep the text and lose the
-  styling; PDFStruct says so in a warning.
-- DOCX has no stored page breaks: it is one logical page, and images, headers/footers and
-  text boxes are not read. Markdown tables and inline markup stay literal text.
-- PDF text uses the Bitstream Vera fonts (Latin incl. Turkish and German). Other scripts are
-  reported as missing glyphs.
-- Not supported: CSV/XLSX input, legacy `.doc`, RTF, ODT, EPUB, PowerPoint, HEIC.
+Needs Python 3.10, 3.11, 3.12 or 3.13 from [python.org](https://www.python.org/downloads/).
 
-## Desktop window
+1. Open the [latest release](https://github.com/KelesogluMustafa/pdfstruct/releases/latest).
+2. Download `PDFStruct-Windows-Setup-0.2.1.zip`.
+3. Extract it.
+4. Run `install-windows.cmd`.
+5. Start the desktop window:
+
+   ```
+   %USERPROFILE%\.local\pdfstruct\current\Scripts\pdfstruct-gui.exe
+   ```
+
+The command line is in the same folder (`pdfstruct.exe`). The installer does not change your
+PATH and does not touch your system Python packages.
+
+- Your documents remain on your computer.
+- The first OCR run downloads the OCR models once, about 13 MB with the default models.
+- `update-windows.cmd` updates after asking you; `update-windows.cmd -Rollback` goes back.
+  Details: [Installation](docs/INSTALLATION.md).
+
+## Portable quick start
+
+Python is not required.
+
+1. Download `PDFStruct-Portable-0.2.1-win64.zip` from the
+   [latest release](https://github.com/KelesogluMustafa/pdfstruct/releases/latest).
+2. Extract it completely. Do not run it from inside the ZIP.
+3. Run `PDFStruct.exe` (desktop window) or `pdfstruct-cli.exe` (command line).
+
+- The package is large because Qt and the OCR runtime are included.
+- The first OCR run may download the OCR models (about 13 MB with the default models).
+- The build is unsigned, so Windows SmartScreen may warn on first start.
+- Portable has no updater: download the next ZIP to update.
+- Portable has no Claude or MCP integration. Claude users should use Windows Setup.
+
+## Claude Desktop setup
+
+1. Install [Windows Setup](#windows-setup-quick-start).
+2. Download `pdfstruct-0.2.1.mcpb` and install it in Claude:
+   **Settings → Extensions → Advanced settings → Install Extension**.
+3. Skill: if you also install the [plugin](#claude-code--cowork-setup), you are done. If you
+   use only the extension, add `pdfstruct-skill.zip` in Claude's skill settings so Claude
+   knows the workflow.
+4. Restart Claude.
+5. Try it:
+
+   ```
+   Convert C:\Documents\scan.png to PDF and TXT. Do not place document text in the conversation; return only the result and output paths.
+   ```
+
+More: [Claude integration](docs/CLAUDE_INTEGRATION.md).
+
+## Claude Code / Cowork setup
+
+1. Install [Windows Setup](#windows-setup-quick-start).
+2. Install `pdfstruct-plugin.zip` as a plugin. In Claude Code you can also unpack it and run
+   `claude --plugin-dir <unpacked folder>`.
+3. The plugin includes the skill and the MCP registration. Do not also install
+   `pdfstruct-skill.zip` or add the MCP server by hand.
+4. Verify: `claude mcp list` (or `/mcp`) shows `plugin:pdfstruct:pdfstruct` as connected.
+5. Try the same prompt:
+
+   ```
+   Convert C:\Documents\scan.png to PDF and TXT. Do not place document text in the conversation; return only the result and output paths.
+   ```
+
+## CLI quick start
+
+With Windows Setup the commands are in `%USERPROFILE%\.local\pdfstruct\current\Scripts`; in the
+portable folder use `pdfstruct-cli.exe` in place of `pdfstruct`.
 
 ```
-pdfstruct-gui                     (Windows without activating anything: setup-windows.cmd)
-pdfstruct-gui report.pdf scans    files or folders can be passed
+pdfstruct                                             interactive menu: pick files, then formats
+pdfstruct report.docx --format pdf                    one file, one format
+pdfstruct scan.png --format txt,docx,pdf              one file, several formats, one OCR pass
+pdfstruct "C:\Documents" --format json --all-types    every supported file in a folder
+pdfstruct report.pdf --format txt --force-ocr         run OCR on every page
+pdfxlsx report.pdf                                    short alias for --format xlsx
 ```
 
-Drop files or folders on the window or use **Select Files**, tick one or more of the ten
-formats, optionally choose an output folder, press **Convert**. The window shows the current
-file and step (reading, OCR page, writing), lists the result per file with its warnings, and
-**Open Output Folder** opens the result. **Cancel** stops after the step that is running.
-OCR is loaded only when a file needs it, never when the window opens.
+Results go to an `output` folder next to each input. Source files are never overwritten.
+All commands, flags and aliases: [CLI reference](docs/CLI_REFERENCE.md).
 
-## Terminal
+## Privacy and LLM context
 
-```
-pdfstruct                                  menu: pick files here, then formats
-pdfstruct report.docx                      menu: pick formats for that file
-pdfstruct report.docx --format pdf         one format
-pdfstruct scan.png --format txt,docx,pdf   several formats, one OCR pass
-pdfstruct "C:\Documents" --format json --all-types    every supported file in the folder
-pdfxlsx report.pdf                         aliases: pdfjson pdfhtml pdftxt pdfmd pdfcsv pdfxlsx
-                                           pdfdocx pdfjsonl pdfsqlite
-pdfjson                                    all PDFs in the current folder
-```
+- Extraction, OCR and conversion are deterministic work and run on your computer.
+- Claude normally receives a compact status and the output paths, not the document.
+- Document text is returned only when you explicitly ask Claude to read or search it.
+- `read_excerpt` returns at most 2,000 characters per call.
 
-In the menu: arrow keys move, `SPACE` selects, `A` selects all, `ENTER` continues, `B` goes
-back, `Q` quits. With `--format` (or an alias) nothing is asked. A folder given to a
-non-interactive command takes its PDFs only, as before; add `--all-types` for every supported
-type. `--force-ocr` runs OCR on every PDF page, `--native-only` never runs it; on inputs where
-these make no sense PDFStruct says so instead of ignoring them. Without a terminal (CI, pipes)
-a bare `pdfstruct` prints usage instead of waiting.
+This can reduce unnecessary LLM context and token use, because a long document does not have
+to be loaded into the conversation just to be converted. How much it saves depends on what
+you ask Claude to do with the content afterwards.
 
-## Claude: MCP server and Agent Skill
+The only network access is the one-time download of the OCR models.
 
-The MCP server lets Claude start conversions on your computer and get back **status and file
-names only**. The document does not enter the conversation unless you ask Claude to read it,
-and then only in small pieces.
+## Important limitations
 
-Tools: `convert(paths, formats, output_dir?, force_ocr?)`, `inspect(path)`,
-`supported_formats()`, `search(path_or_output, query)`, `read_excerpt(path_or_output, page?,
-max_chars?)` (at most 2000 characters per call, returned as untrusted document text).
+- **CSV and XLSX** contain extracted text blocks, one per row. They are not reconstructed tables.
+- **DOCX to PDF** is a readable reflow, not a pixel-perfect copy of the layout.
+- **Same-format conversions** (DOCX to DOCX, Markdown to Markdown) keep the text, not the styling.
+- PDFStruct does **not** summarize, understand meaning or extract fields such as invoice
+  numbers. It produces reliable raw text and structure.
+- **OCR runs on the CPU by default.** GPU use is not a ready, supported setup.
+- The **first OCR use downloads models** (about 13 MB with the default models).
+- **Non-Latin** OCR and PDF output are not ready defaults.
+- **Not supported as input:** `.doc`, RTF, ODT, EPUB, PowerPoint, HEIC, CSV, XLSX.
+- The desktop window was tested by hand **only on Windows 11**. It is unverified on macOS and
+  Linux.
+- **OCR is not available** on macOS Intel, Linux ARM64 and Windows ARM.
 
-Install order and the plugin/extension/skill choice are in
-[Choose your integration](#choose-your-integration). Details:
+## Documentation
 
-- **Plugin** (`plugin/`): `.claude-plugin/plugin.json`, the skill and `.mcp.json`. No PDFStruct
-  code inside. The normal chat of Claude Desktop does not start plugin MCP servers; it needs the
-  extension.
-- **Extension** (`integrations/claude-desktop/`): manifest with server type `binary` and a
-  `.cmd` for manual checks; no Node launcher and nothing to configure. If it does not load, add
-  the server by hand to `claude_desktop_config.json`:
+| Document | What is in it |
+|---|---|
+| [Installation](docs/INSTALLATION.md) | Windows Setup, update and rollback, portable, pip and source installs, uninstall |
+| [Claude integration](docs/CLAUDE_INTEGRATION.md) | Extension, plugin, skill, MCP tools, manual configuration, rules for Claude |
+| [CLI reference](docs/CLI_REFERENCE.md) | Commands, flags, aliases, output names, terminal output |
+| [PDF pipeline reference](docs/PDF_PIPELINE_REFERENCE.md) | Native text or OCR, quality score, raw JSON, configuration, parsers |
+| [Architecture](docs/MASTER_ARCHITECTURE.md) | Design, principles and rules for changes |
+| [Changelog](CHANGELOG.md) | What changed in each version |
 
-  ```json
-  { "mcpServers": { "pdfstruct": { "command": "C:\\Users\\<you>\\.local\\pdfstruct\\current\\Scripts\\pdfstruct-mcp.exe" } } }
-  ```
+## Platform and project status
 
-- **Skill** (`plugin/skills/pdfstruct/SKILL.md`): the single source. The plugin and
-  `pdfstruct-skill.zip` are both built from it. It teaches Claude to inspect, convert and read
-  only small pieces on request; in Claude Desktop chat it uses the MCP tools only and says so
-  when PDFStruct is not connected. It contains instructions only.
-- **Build**: `python scripts/build_release_assets.py` writes all release files reproducibly to
-  `dist/release-<version>/`; `--stage` also copies the Claude files to
-  `%USERPROFILE%\.local\pdfstruct\claude-windows`.
+| | |
+|---|---|
+| Version | v0.2.1 |
+| Stage | Alpha |
+| License | MIT, free and open source |
+| Repository | Public |
+| PyPI | Not published; install from the release files |
+| Windows | Windows Setup and a portable desktop/command-line package are available |
+| Automated tests | GitHub Actions on Windows, Ubuntu and macOS |
+| Desktop window | Tested by hand on Windows 11 |
 
-## Windows portable folder (no Python needed)
+## Contributing and support
 
-`PDFStruct-Portable-<version>-win64.zip` from a release unpacks to a folder with
-`PDFStruct.exe` (the window) and `pdfstruct-cli.exe` (the command line). Nothing is installed.
-It is about 800 MB unpacked because it carries the OCR runtime and Qt; the OCR models are still
-downloaded on first use. The build is unsigned, so SmartScreen may ask once, and it has been
-built and tried on one Windows 11 x64 machine only. The MCP server is not part of it.
+- If PDFStruct is useful to you, star the repository.
+- Report problems you can reproduce in
+  [Issues](https://github.com/KelesogluMustafa/pdfstruct/issues); a small sample file helps.
+- Contributions are welcome. Read the [architecture](docs/MASTER_ARCHITECTURE.md) first and
+  run `python scripts/ci_local.py` before opening a pull request.
+- More about the project: [mustafakelesoglu.de/en/pdfstruct](https://mustafakelesoglu.de/en/pdfstruct).
 
-Build it yourself with `pip install -e ".[gui,packaging]"` and
-`python packaging/windows/build_portable.py`.
-
-## Platforms
-
-Tested by the automated suite on GitHub Actions with Python 3.13: Windows x86_64,
-Linux x86_64 and macOS Apple Silicon (extraction, OCR, all formats; the desktop window is
-checked there without a display). The window was opened and used by hand on Windows 11 only.
-On macOS and Linux the window is expected to work after `pip install ".[gui]"` but has not
-been tried on a real desktop: treat it as unverified. There is no installer, `.app` or DMG yet;
-the Windows portable folder above is the only packaged build.
-macOS Intel, Linux ARM64 and Windows ARM install and read native text; OCR is not available
-there because PaddlePaddle publishes no wheels for them.
-
-## Project Principles
-
-PDFStruct is free and open source.
 All core functionality is available without payment, accounts, usage limits or tracking.
-Voluntary donations may support future development, but never unlock features.
 
-## Development
+## License
 
-```
-pip install -e ".[dev,gui,mcp]"
-python scripts/ci_local.py
-```
-
-`scripts/ci_local.py` (Windows shortcut: `ci-local`) runs the whole local CI in one go:
-import and version check, test suite, wheel + sdist build and validation, a clean temporary
-venv with the built wheel and its extras, every console script, native and OCR conversions,
-the desktop window without a display, the MCP server over stdio and the skill archive. Output
-is one line per step; full logs appear only for failing steps. The architecture and the rules
-for changes are in [docs/MASTER_ARCHITECTURE.md](docs/MASTER_ARCHITECTURE.md).
-
----
-
-## PDF extraction reference (Turkish)
-
-The sections below are the detailed reference for the PDF pipeline (quality score, raw JSON,
-options, project parsers). They predate the other input types and describe PDF inputs.
-
-Genel amaçlı, projeden bağımsız, tamamen local **PDF → ham JSON** aracı.
-
-```
-DETERMINISTIC / BULK WORK   = PYTHON / LAPTOP
-AMBIGUOUS / SEMANTIC DECISION = LLM
-```
-
-Araç belgeyi **anlamlandırmaz** (kelime, fatura tarihi, müşteri adı vb. kararı vermez).
-Yalnızca güvenilir ham veri üretir: sayfa, metin, satır blokları, bbox, yöntem, kalite skoru.
-
-## En basit kullanım
-
-Tek dosya:
-
-```
-pdfjson belge.pdf
-```
-
-Bulunduğun klasördeki tüm PDF'ler:
-
-```
-pdfjson
-```
-
-Başka klasördeki tüm PDF'ler:
-
-```
-pdfjson "C:\Belgeler"
-```
-
-Çıktı her zaman PDF'lerin yanındaki `output` klasörüne yazılır (yoksa oluşturulur):
-`C:\Belgeler\belge.pdf` → `C:\Belgeler\output\belge.raw.json`. Başka yere yazmak için
-`--output "D:\hedef"` ekle.
-
-- Boşluk, Türkçe karakter ve parantez içeren yollar çalışır; tırnak içine alman yeterli:
-  `pdfjson "C:\Belgeler\maaş bordrosu (1).pdf"`.
-- Klasörde alt klasörlere inilmez.
-- Bir PDF bozuksa diğerleri işlenmeye devam eder; sonda `FAILED FILES:` altında listelenir.
-- Aynı komutu tekrar çalıştırmak güvenlidir: değişmemiş PDF'ler atlanır (`SKIPPED`).
-- `pdfhtml`, `pdftxt`, `pdfmd`, `pdfcsv`, `pdfxlsx`, `pdfdocx`, `pdfjsonl`, `pdfsqlite` aynı
-  şekilde kullanılır (`pdfhtml belge.pdf`, `pdfxlsx`, `pdftxt "C:\Belgeler"`).
-- `pdfstruct` komutu `--format` verilmezse menü açar (yukarıdaki *Easy usage*); alias'lar hiç menü açmaz.
-
-Argüman verilmediğinde sıra: (1) bulunduğun klasördeki `*.pdf`, (2) orada PDF yoksa `.\pdf\`
-alt klasörü (çıktı `.\output\`). `pdf\` klasörü **zorunlu değildir**; yalnız eski kullanımla
-uyumluluk ve düzenli proje yapısı (`proje\pdf` → `proje\output`) isteyenler için duruyor.
-
-Terminal çıktısı her zaman kısadır:
-
-```
-FILES FOUND: 12
-PROCESSED: 11
-SKIPPED: 0
-FAILED: 1
-PAGES: 184
-OCR FILES: 1
-REVIEW_PAGES: 0
-OUTPUT: C:\Belgeler\output
-
-FAILED FILES:
-- bozuk.pdf
-```
-
-Tek dosyada ayrıca `METHOD` ve `TEXT_LAYER_SCORE` satırları basılır.
-
-### Alt seviye komut (`pdf2json.cmd`)
-
-`pdfjson` yolları çözüp bu komutu çağırır. Yolları kendin vermek istersen:
-
-```
-<repo>\pdf2json.cmd --input "C:\...\pdf" --output "C:\...\output"
-```
-
-Aracın kendi venv'ini kullanır. `--input` tek bir PDF veya klasör olabilir. Çıktısı
-`FILES / PAGES / NATIVE / OCR / MIXED / SKIPPED / REVIEW_PAGES / ERRORS / OUTPUT` satırlarıdır.
-
-## Native mi, OCR mı?
-
-```
-Native PDF (gerçek metin katmanı var)   →  text extraction (pypdfium2, CPU, çok hızlı)
-Scanned / photo PDF (sayfa bir resim)   →  OCR (PaddleOCR, GPU varsa GPU)
-```
-
-Kararı Python verir, **sayfa bazında**. Bu yüzden karışık PDF'lerde bazı sayfalar native,
-bazıları OCR olabilir (`extraction_method: "mixed"`).
-
-### Kalite skoru (text layer score)
-
-Her sayfa için 0–1 arası skor = üç bileşenin **en zayıfı**:
-
-| Bileşen | Anlamı |
-|---|---|
-| `density` | Sayfayı büyük bir resim kaplıyorsa (olası tarama) metin miktarı yeterli mi? Resim yoksa 1.0 |
-| `unicode` | Bozuk karakter oranı (U+FFFD, kontrol karakterleri, private-use). %0 → 1.0, %10 ve üzeri → 0.0 |
-| `bbox` | Bloklardan kaçının kutusu geçerli ve sayfa içinde |
-
-- Metin yok + sayfada hiç nesne yok → **boş sayfa** (`method: "none"`, OCR çalışmaz, skora girmez).
-- Metin yok + sayfada resim/nesne var → skor 0.0 → **OCR**.
-- Skor `min_page_score` (varsayılan 0.5) altındaysa → **OCR**.
-
-Belge skoru (`text_layer_score`) = boş olmayan sayfaların ortalaması. Bütün bileşenler
-`.summary.json` içinde sayfa sayfa yazılır; karar her zaman açıklanabilir.
-Eşikler ayar dosyasıyla değiştirilebilir: `config.example.json` dosyasını
-`~/.pdfstruct/config.json` olarak kopyala (veya `--config` / `PDFSTRUCT_CONFIG` ile yol ver).
-
-Bilinen sınır: taranmış bir PDF'e daha önce başka bir araçla *düzgün görünen ama yanlış*
-bir metin katmanı eklenmişse skor bunu yakalayamaz. Şüphe varsa `--force-ocr` kullan.
-
-## Çıktı dosyaları
-
-| Dosya | İçerik | Claude okuyabilir mi? |
-|---|---|---|
-| `<ad>.raw.json` | Tam ham veri: sayfalar, metin, bloklar, bbox | **Hayır** (yalnız tek tek sayfa) |
-| `<ad>.summary.json` | Sayfa başına yöntem, skor, uyarı; metin yok | Evet |
-| `_run_summary.json` | Çalıştırmanın toplamı, belge başına bir satır | Evet |
-| `<ad>.parsed.json` | `--parser` çıktısı | Parser'a bağlı |
-
-### raw.json biçimi (özet)
-
-Tam şema: [schemas/raw_document.schema.json](schemas/raw_document.schema.json)
-
-```json
-{
-  "schema_version": "1.0",
-  "source": { "path": "C:\\...\\document.pdf", "file_name": "document.pdf", "sha256": "...", "size_bytes": 12345 },
-  "source_file": "C:\\...\\document.pdf",
-  "extraction_method": "native",
-  "text_layer_score": 0.97,
-  "ocr_used": false,
-  "coordinate_system": { "unit": "pt", "origin": "top-left", "bbox": "[x1, y1, x2, y2]" },
-  "page_count": 24,
-  "review_pages": [],
-  "pages": [
-    {
-      "page": 1, "width": 595.28, "height": 841.89, "rotation": 0,
-      "method": "native",
-      "text_layer": { "score": 1.0, "components": { "density": 1.0, "unicode": 1.0, "bbox": 1.0 }, "chars": 1830 },
-      "ocr_confidence": null, "needs_review": false, "warnings": [],
-      "text": "...",
-      "blocks": [ { "text": "...", "bbox": [72.0, 61.2, 310.4, 73.9], "order": 0 } ]
-    }
-  ]
-}
-```
-
-- `bbox` birimi punto (1/72 inç), orijin **sol üst**, sayfa döndürmesi uygulanmış. Native ve
-  OCR sayfalarında aynı koordinat sistemi kullanılır.
-- `blocks` satır düzeyindedir, çıkarım sırasıyla (`order`). OCR bloklarında `confidence` vardır.
-- `review_pages`: insan/LLM gözü gereken sayfalar (düşük OCR güveni, OCR gerekip çalışamadı vb.).
-
-## Kısa komutlar ve ek çıktı formatları
-
-Bu klasör USER PATH'te olduğu için komutlar her yerden çalışır. Hepsi `pdfjson` ile aynı
-girdi kurallarını kullanır (dosya, klasör veya argümansız).
-
-| Komut | Çıktı | İçerik |
-|---|---|---|
-| `pdfjson` | `<ad>.raw.json` | Çıkarım + OCR (asıl pipeline). Seçenekler aynen geçer: `pdfjson --force-ocr` |
-| `pdfhtml` | `<ad>.html` | Tarayıcıda kontrol: sayfa sayfa bloklar, yöntem, skor, OCR güveni. Tek dosya, internet gerekmez |
-| `pdftxt` | `<ad>.txt` | Yalnız metin; sayfalar `===== Page 3 / 24 =====` ile ayrılır |
-| `pdfmd` | `<ad>.md` | `## Page N` başlıklı Markdown; satır sırası korunur, tablo üretilmez |
-| `pdfcsv` | `<ad>.csv` | Blok başına satır: `source_file,page,block_index,text,x1,y1,x2,y2,method,confidence` |
-| `pdfxlsx` | `<ad>.xlsx` | İki sheet: `Pages` (sayfa başına satır) ve `Blocks` (CSV ile aynı kolonlar) |
-| `pdfdocx` | `<ad>.docx` | Sayfa sırasıyla okunabilir Word belgesi; her PDF sayfası yeni sayfada |
-| `pdfjsonl` | `<ad>.jsonl` | Blok başına bir JSON satırı (`bbox` dizi olarak) |
-| `pdfsqlite` | `<ad>.sqlite` | `documents`, `pages`, `blocks` tabloları |
-| `pdfstruct <dosya> --format pdf` | `<ad>.<uzantı>.pdf` | PDF çıktısı (DOCX/TXT/MD/HTML ve görseller için; PDF girdide atlanır) |
-
-**Format komutları PDF'i yeniden çıkarmaz / OCR'lamaz:**
-
-1. `output\<ad>.raw.json` varsa o kullanılır (PDF açılmaz; PDF silinmiş olsa bile çalışır).
-2. Yoksa önce normal `pdfjson` pipeline'ı **yalnız eksik belgeler için** çalışır.
-3. Hedef format raw JSON'dan üretilir.
-
-Terminal çıktısı:
-
-```
-FORMAT: html
-FILES: 2
-EXPORTED: 2
-RAW_REUSED: 2      (mevcut raw.json kullanıldı)
-EXTRACTED: 0       (bu çalıştırmada çıkarılan belge)
-ERRORS: 0
-OUTPUT: C:\...\output
-```
-
-Notlar:
-
-- Tekrar çalıştırmak güvenlidir: dosyalar yeniden yazılır, SQLite'ta belgenin eski satırları
-  aynı transaction içinde silinip yeniden eklenir (çift kayıt oluşmaz).
-- PDF sonradan değiştiyse raw.json eski kalır; komut `STALE_RAW` satırıyla uyarır. Yenilemek
-  için `pdfjson` çalıştır.
-- `--force-ocr`, `--native-only`, `--config` yalnız çıkarılması gereken belgeleri etkiler.
-- `confidence` yalnız OCR bloklarında doludur. `method` sayfanın yöntemidir (`native` / `ocr`).
-- CSV, UTF-8 **BOM**'ludur (Excel umlautları doğru açsın diye); Python'da `encoding="utf-8-sig"`.
-- HTML/TXT/MD/DOCX/XLSX'te okunabilirlik için satır sonu tire işaretleri `-` yapılır, kontrol
-  karakterleri atılır. CSV/JSONL/SQLite metni raw.json'daki gibi saklar.
-- XLSX'te bir hücre en çok 32.767 karakter alır; daha uzun sayfa metni kesilir (tam metin
-  diğer formatlarda durur).
-- Bunlar **genel belge exportudur** (sayfa + satır blokları). Kelime listesi, fatura, bordro
-  gibi semantik alanlar için project parser kullan (aşağıda).
-
-## Seçenekler
-
-| Seçenek | Ne yapar |
-|---|---|
-| `--output <klasör>` | Çıktı klasörü (varsayılan: PDF'lerin yanındaki `output`) |
-| `--force-ocr` | Boş olmayan her sayfayı OCR'dan geçirir |
-| `--native-only` | OCR'ı hiç çalıştırmaz; zayıf sayfalar `review_pages`'e düşer |
-| `--overwrite` | Güncel `.raw.json` olsa bile yeniden çıkarır |
-| `--parser <dosya.py>` | Her belge için project parser çalıştırır |
-| `--config <dosya.json>` | Ayar dosyası (varsayılan: `PDFSTRUCT_CONFIG` veya `~/.pdfstruct/config.json`; yoksa gömülü varsayılanlar) |
-
-**İkinci çalıştırma (idempotent):** kaynak PDF (sha256) ve ayarlar değişmediyse belge atlanır
-(`SKIPPED`). PDF veya ayar değişirse otomatik yeniden çıkarılır. Çıktı deterministiktir
-(aynı girdi → byte-byte aynı raw.json).
-
-**Hatalı PDF:** diğer dosyalar işlenmeye devam eder; bozuk dosya için
-`<ad>.summary.json` içinde `status: "error"` yazılır, çıkış kodu 1 olur.
-
-## Project parser (hook)
-
-Genel araç ile projeye özel parser birbirine yalnızca tek bir fonksiyonla bağlıdır:
-
-```python
-# my_parser.py  (kendi projende durur)
-OUTPUT_SUFFIX = ".a2_master.json"      # isteğe bağlı; varsayılan ".parsed.json"
-
-def parse(raw: dict, context: dict):
-    # raw     = yüklenmiş <ad>.raw.json
-    # context = {"raw_path", "output_dir", "stem", "source_file"}
-    ...
-    return {"entries": [...]}          # <ad>.a2_master.json olarak yazılır (None → yazılmaz)
-```
-
-```
-pdfjson --parser tools\my_parser.py
-```
-
-```
-document.pdf → document.raw.json → (Goethe parser)  → document.a2_master.json
-invoice.pdf  → invoice.raw.json  → (invoice parser) → invoice.parsed.json
-```
-
-Parser, çıkarım atlansa (SKIPPED) bile çalışır; yani parser'ı geliştirirken PDF yeniden
-işlenmez. Örnek: [examples/example_parser.py](examples/example_parser.py).
-
-## OCR ortamı
-
-OCR, PDFStruct'ın kendi Python ortamında çalışır: `paddleocr` + `paddlepaddle` (CPU) paketleri
-desteklenen platformlarda `pip install` ile birlikte gelir; ayrı bir OCR kurulumu, başka bir
-Python yolu veya CUDA gerekmez.
-
-- Native sayfalarda OCR kütüphanesi **hiç import edilmez**; yalnız OCR gereken ilk sayfada
-  yüklenir (başlangıç süresi ve RAM native kullanımda değişmez).
-- Modeller ilk OCR'da `~/.pdfstruct/models` altına indirilir (`ocr.model_cache_dir` ile
-  değiştirilebilir), sonraki çalıştırmalarda önbellekten okunur. Model dosyaları pakette yoktur.
-- Varsayılan modeller: `PP-OCRv5_mobile_det` + `latin_PP-OCRv5_mobile_rec` (Almanca/Türkçe/
-  İngilizce dahil Latin alfabeleri; CPU'da sayfa başına yaklaşık 1–2 s). Başka alfabe için
-  ayar dosyası → `ocr.rec_model`; daha güçlü algılama için `ocr.det_model: "PP-OCRv6_medium_det"`.
-- Cihaz: `ocr.device: "auto"` → CPU. GPU yalnız CUDA'lı bir paddlepaddle kurulumu ve bir GPU
-  görüldüğünde kullanılır; bu aşamada desteklenen/hazır bir kurulum yolu değildir.
-- `ocr.enable_mkldnn` varsayılan `false`: güncel paddlepaddle 3.x CPU derlemelerinde oneDNN
-  yolu hata veriyor.
-- OCR paketleri yoksa araç çökmez: native metin korunur, sayfalar `review_pages`'e yazılır,
-  terminalde `OCR_UNAVAILABLE` satırı çıkar. Marker'ların kapsamadığı bir platformda denemek
-  için: `pip install "pdfstruct[ocr]"`.
-- Eski ayar anahtarları `ocr.python` ve `ocr.python_candidates` artık kullanılmaz; ayar
-  dosyasında dursalar bile yok sayılır.
-
-## Kurulum (yeniden kurmak gerekirse)
-
-En kolayı: repo klasöründe `setup-windows.cmd`. Elle:
-
-```
-cd <repo>
-python -m venv .venv
-.venv\Scripts\python.exe -m pip install -e ".[dev,gui,mcp]"
-```
-
-Bu klasördeki `.cmd` dosyaları (`pdfjson.cmd`, `pdfstruct-gui.cmd`, `pdfstruct-mcp.cmd`, ...)
-bu `.venv`'i kullanır; klasör USER PATH'te olduğu için venv'i aktive etmeden her yerden çalışır.
-Başka bir Python ortamına `pip install` ile kurulduğunda aynı komutlar o ortamın kendi
-script'leri olarak gelir (Windows/macOS/Linux).
-
-Testler, derleme ve kurulum doğrulamasının tamamı tek komutla: `ci-local`
-(= `.venv\Scripts\python.exe scripts\ci_local.py`). Yalnız testler:
-`.venv\Scripts\python.exe -m pytest -q`.
-
-## Claude ile kullanım
-
-Önerilen yol: yerel MCP sunucusu + Agent Skill (yukarıda, *Claude: MCP server and Agent Skill*).
-MCP yoksa komut satırı kuralları: [CLAUDE_RULES.md](CLAUDE_RULES.md) (projelerin `CLAUDE.md`
-dosyasına kopyalanacak kısa snippet de orada).
-
-Özet: Claude belgeyi ve `.raw.json`'un tamamını context'ine **almaz**; dönüşümde yalnız durum ve
-dosya adları, analiz istenirse `search` / `read_excerpt` ile küçük bir parça okunur.
-
-## Dosyalar
-
-```
-PDFStruct\
-├── pyproject.toml          paket tanımı, bağımlılıklar, extra'lar ([gui], [mcp]), script'ler
-├── src\pdfstruct\
-│   ├── __init__.py         sürüm (tek kaynak)
-│   ├── service.py          run_job: CLI, GUI ve MCP'nin ortak dönüştürme servisi
-│   ├── inputs\             girdi adapter'ları: text (txt, md), html, docx, image
-│   ├── extract.py          PDF çıkarımı, kalite skoru, raw JSON yazımı, parser hook
-│   ├── ocr.py              OCR backend (PaddleOCR, aynı süreçte, tembel yükleme)
-│   ├── export.py           raw.json → html/txt/md/csv/xlsx/docx/jsonl/sqlite/pdf
-│   ├── pdfwriter.py        PDF çıktısı (reportlab)
-│   ├── cli.py              pdfstruct + alias komutları, girdi/çıktı yolu çözümleme
-│   ├── interactive.py      terminal menüleri (bare pdfstruct)
-│   ├── mcp_server.py       yerel MCP sunucusu (pdfstruct-mcp)
-│   └── gui\                masaüstü penceresi (pdfstruct-gui): state, worker, window, app
-├── plugin\                Claude Code / Cowork plugin'i: plugin.json, .mcp.json ve tek Skill kaynağı
-│                           (plugin\skills\pdfstruct\SKILL.md)
-├── integrations\claude-desktop\   Claude for Windows .mcpb başlatıcısı (manifest + .cmd; runtime içermez)
-├── packaging\windows\     PyInstaller spec + build_portable.py (Windows portable klasör)
-├── install-windows.cmd     wheel'den %USERPROFILE%\.local\pdfstruct\v<sürüm> kurulumu + current bağlantısı
-├── update-windows.cmd      onaylı güncelleme, -Rollback, -List (arka plan servisi yok)
-├── setup-windows.cmd       geliştirme kurulumu: repo içi .venv (editable) + pencereyi açma
-├── pdfstruct.cmd, pdfjson.cmd … pdfsqlite.cmd, pdfstruct-gui.cmd, pdfstruct-mcp.cmd
-│                           venv'i kendisi seçen Windows komutları
-├── pdfexport.cmd, pdf2json.cmd   ortak başlatıcı / alt seviye komut
-├── scripts\ci_local.py, ci-local.cmd, scripts\build_release_assets.py
-├── scripts\install-windows.ps1, update-windows.ps1, runtime-common.ps1, verify_runtime.py
-├── config.example.json     ayar örneği
-├── schemas\raw_document.schema.json   raw JSON şeması (1.0 PDF, 1.1 diğer girdiler)
-├── examples\example_parser.py
-├── docs\MASTER_ARCHITECTURE.md
-├── tests\
-├── README.md, CHANGELOG.md, LICENSE, THIRD_PARTY_NOTICES.md
-└── CLAUDE.md, CLAUDE_RULES.md
-```
+[MIT](LICENSE). Third-party components keep their own licenses: see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
