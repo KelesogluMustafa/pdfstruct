@@ -1011,11 +1011,14 @@ Owner decision (2026-10-07): v0.2 also carries the shared conversion service, th
 non-PDF inputs, PDF output, the local MCP server and the Agent Skill. See section 35.
 Installers (Setup.exe, DMG, signing) stay optional proofs and must not block the core.
 
-## v0.3 — More inputs
+## v0.3 — Text to local document
 
-DOCX, image, TXT, Markdown and HTML inputs moved into v0.2 (section 35).
+Owner decision (2026-10-08): v0.3.0 adds documents created from text held in memory
+(`create_document`, section 36). DOCX, image, TXT, Markdown and HTML inputs had already moved
+into v0.2 (section 35).
 
-Remaining candidates: CSV/XLSX input, RTF/ODT, EPUB, HEIC. Reuse the common document model.
+Remaining input candidates for later: CSV/XLSX input, RTF/ODT, EPUB, HEIC. Reuse the common
+document model.
 
 ## v0.4 — PDF utilities
 
@@ -1504,6 +1507,62 @@ Claude Desktop chat  : .mcpb extension (launcher) + the same skill
   `pdfstruct-skill.zip` are built from it by `scripts/build_release_assets.py`. A user of the
   plugin does not install the skill ZIP.
 - The plugin, the `.mcpb` and the skill ZIP contain no runtime, no dependencies and no models.
+
+---
+
+# 36. v0.3 working decisions (2026-10-08): text to local document
+
+## 36.1 A second entry point, the same core
+
+```text
+text in memory -> pdfstruct.create.create_document -> block model -> writers -> files
+                        ^
+         pdfstruct-create / window tab / MCP tool create_document
+```
+
+- `pdfstruct.create.create_document(CreateRequest) -> CreateResult` is the only entry point
+  for documents created from text. The command line, the window and the MCP tool call it and
+  hold no document logic. It imports no MCP, no Qt and no OCR, and calls no network and no
+  LLM.
+- `run_job` stays the only entry point for existing files. Extraction, the raw JSON, the
+  exporters and their output for file inputs are unchanged.
+- The text is parsed into the existing block model (`pdfstruct.inputs.text`). Created
+  documents use the richer reading (`markdown_blocks(rich=True)`: tables, rules, inline
+  `spans`); file inputs keep the plain reading, so their results do not change.
+- Formats: DOCX, PDF, HTML, Markdown, TXT. DOCX and HTML are written by
+  `pdfstruct.docwriter`; PDF reuses `pdfstruct.pdfwriter`. Another format is added only with
+  tests that show an honest result.
+
+## 36.2 Contract
+
+- Output names are exact: `<name>.<format>`. No source extension, no suffix, no counter.
+- `name` is a file name. Folders, traversal, drive letters, control characters and reserved
+  Windows device names are rejected, never repaired.
+- Default format DOCX. Default folder `Documents/PDFStruct` of the current user; the command
+  line uses the current folder.
+- Existing files are never replaced silently: a conflict writes nothing at all. Replacing
+  needs an explicit `overwrite`, which Claude sets only on the user's request.
+- Every format is rendered in memory before the first file is written. A file appears on
+  disk complete (written next to its target, then moved). There is no temporary source file
+  and nothing is left behind after a failure.
+- The result carries a status (`created`, `conflict`, `invalid`, `failed`), the created
+  paths and at most five short warnings. It never carries the text, and neither do errors,
+  logs or the MCP channel.
+- At most 500,000 characters per document. Larger text is saved as a file and converted.
+- Same text, same bytes, for all five formats.
+
+## 36.3 Honest limits
+
+- Markdown support is the listed subset: headings, paragraphs, bold, italic, inline code,
+  bullet and numbered lists, fenced code, simple pipe tables, horizontal rules, links. Block
+  quotes, embedded HTML, footnotes and task lists stay text. Pictures are never fetched or
+  embedded.
+- `{{PLACEHOLDER}}` values are template text and are never interpreted.
+- PDF is a readable A4 re-flow. HTML escapes all input and carries a content security policy
+  that allows no script and no remote resource. DOCX is macro-free.
+- Tokens: the model still spends tokens to write the text. PDFStruct does the formatting and
+  the writing locally and returns paths only, so the text is not repeated. No "zero tokens"
+  and no "Claude never sees it" claims.
 
 ---
 

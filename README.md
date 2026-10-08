@@ -31,6 +31,7 @@ there, and Claude can use the result without loading the whole document into the
 [Why PDFStruct](#why-pdfstruct) ·
 [How it works](#how-it-works) ·
 [Supported formats](#supported-formats) ·
+[Create from text](#create-a-document-from-text) ·
 [Choose your installation](#choose-your-installation) ·
 [Windows Setup](#windows-setup-quick-start) ·
 [Portable](#portable-quick-start) ·
@@ -54,6 +55,8 @@ there, and Claude can use the result without loading the whole document into the
 - **Repeatable.** The same command gives the same result, for one file or a whole folder.
 - **Built for Claude.** Claude starts the conversion and gets back a short status and the
   output paths, not the document.
+- **Text to document.** Text that Claude wrote in the conversation is saved as a real DOCX,
+  PDF, HTML, Markdown or TXT file by PDFStruct on your computer.
 
 It is for people who care where their documents go, developers building document workflows,
 Claude Desktop, Claude Code and Cowork users, and anyone converting scanned or mixed files in
@@ -91,6 +94,26 @@ Document
 
 Any input can go to any output, with one exception: a PDF is not written again as PDF.
 Each input is processed once, and all selected outputs come from that one result.
+
+## Create a document from text
+
+Conversion needs a file that already exists. `create_document` (new in 0.3.0) needs none: it
+takes text and writes `<name>.docx`, `.pdf`, `.html`, `.md` or `.txt`, several in one call.
+
+```
+Create this as WEBSITE_STRATEGY_AUDIT_TEMPLATE.docx using PDFStruct. Do not repeat the content; return only the result and output path.
+```
+
+- **In Claude:** the `create_document` tool. Claude gets back a status and the paths, not the
+  text. Without a folder the files go to `Documents\PDFStruct`.
+- **Command line:** `pdfstruct-create --name NOTES --format docx,pdf --content-file notes.md`,
+  or pipe the text in.
+- **Desktop window:** the **Create from text** tab.
+
+Markdown becomes Word headings, real lists, real tables and monospace code; plain text is
+kept as it is. Placeholders such as `{{PROJECT_NAME}}` are never changed. An existing file is
+never replaced unless you ask for it. Details: [Claude integration](docs/CLAUDE_INTEGRATION.md#create-a-document-from-conversation-text)
+and [CLI reference](docs/CLI_REFERENCE.md#pdfstruct-create).
 
 ## Choose your installation
 
@@ -200,6 +223,9 @@ All commands, flags and aliases: [CLI reference](docs/CLI_REFERENCE.md).
 
 - Extraction, OCR and conversion are deterministic work and run on your computer.
 - Claude normally receives a compact status and the output paths, not the document.
+- With `create_document`, Claude writes the text, so writing it costs tokens as usual.
+  Turning it into DOCX or PDF and saving it happens on your computer, and the result that
+  comes back holds paths only, so the text is not repeated in the conversation.
 - Document text is returned only when you explicitly ask Claude to read or search it.
 - `read_excerpt` returns at most 2,000 characters per call.
 
@@ -213,6 +239,9 @@ The only network access is the one-time download of the OCR models.
 
 - **CSV and XLSX** contain extracted text blocks, one per row. They are not reconstructed tables.
 - **DOCX to PDF** is a readable reflow, not a pixel-perfect copy of the layout.
+- **Created documents:** PDF is a readable A4 reflow. Pictures are not embedded, block quotes
+  and embedded HTML stay plain text, and at most 500,000 characters are accepted per
+  document.
 - **Same-format conversions** (DOCX to DOCX, Markdown to Markdown) keep the text, not the styling.
 - PDFStruct does **not** summarize, understand meaning or extract fields such as invoice
   numbers. It produces reliable raw text and structure.

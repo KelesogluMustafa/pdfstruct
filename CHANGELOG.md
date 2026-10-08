@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.3.0 (unreleased)
+
+- New: text to local document. Text that exists only in a conversation, a terminal pipe or the
+  window is written as DOCX, PDF, HTML, Markdown or TXT on this computer, without a source file
+- MCP tool `create_document(name, content, formats, output_dir, content_type, overwrite)`, the
+  sixth tool. It returns a status, the created paths and short warnings, never the text. The
+  five existing tools are unchanged
+- Markdown is read with headings, paragraphs, bold, italic, inline code, bullet and numbered
+  lists, fenced code, simple tables, horizontal rules and links; plain text keeps its
+  paragraphs and line breaks. `{{PLACEHOLDER}}` values are kept exactly in both
+- DOCX output uses Word heading styles, real lists, real tables and a monospace `Code` style;
+  PDF is a readable A4 re-flow; HTML is escaped and can load or run nothing
+- Command `pdfstruct-create` (text from `--content-file` or standard input)
+- Desktop window: a second tab, "Create from text"
+- Safe by default: the name is a file name only (no folder, no traversal, no reserved Windows
+  name), existing files are kept and reported unless overwriting was asked for, and nothing
+  is written, not even temporarily, when a request fails
+- Everything runs locally: no upload, no network access, no LLM call. Writing the text still
+  costs tokens; formatting and saving it does not
+- No change to file conversion, OCR, the existing commands or the existing MCP tools
+
 ## 0.2.1
 
 - Windows: `install-windows.cmd` installs a release wheel into its own versioned folder

@@ -36,6 +36,7 @@ Programs, all in `%USERPROFILE%\.local\pdfstruct\current\Scripts`:
 | `pdfstruct-gui.exe` | desktop window |
 | `pdfstruct.exe` | command line |
 | `pdfjson.exe`, `pdfxlsx.exe`, ... | per-format aliases |
+| `pdfstruct-create.exe` | text or Markdown to documents |
 | `pdfstruct-mcp.exe` | MCP server that Claude starts |
 
 Add that folder to your PATH yourself if you want to type `pdfstruct` from anywhere.
@@ -155,7 +156,9 @@ src/pdfstruct/
   ocr.py                    OCR backend (PaddleOCR, in-process, loaded lazily)
   export.py                 raw JSON -> html/txt/md/csv/xlsx/docx/jsonl/sqlite/pdf
   pdfwriter.py              PDF output (reportlab)
-  cli.py                    pdfstruct and alias commands
+  create.py                 create_document: text in memory -> docx/pdf/html/md/txt files
+  docwriter.py              DOCX and HTML content for created documents
+  cli.py                    pdfstruct, the alias commands and pdfstruct-create
   interactive.py            terminal menus
   mcp_server.py             MCP server (pdfstruct-mcp)
   gui/                      desktop window (pdfstruct-gui)

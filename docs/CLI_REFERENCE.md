@@ -159,6 +159,51 @@ A failed document gets `status: "error"` in its `<name>.summary.json`, and the e
   vocabulary list or invoice data, write a
   [project parser](PDF_PIPELINE_REFERENCE.md#project-parsers).
 
+## pdfstruct-create
+
+Writes text or Markdown as documents. It is the command-line form of the `create_document`
+tool and needs no existing document: the text comes from a file or from standard input,
+never from an argument.
+
+```
+pdfstruct-create [--name NAME] [--format FMT] [--output DIR] [--type markdown|text]
+                 [--overwrite] [--content-file FILE]
+```
+
+```
+pdfstruct-create --name NOTES --content-file notes.md                     NOTES.docx in this folder
+pdfstruct-create --name NOTES --format docx,pdf,html --content-file notes.md
+pdfstruct-create --content-file notes.md --output "C:\Documents\Templates"   name taken from the file
+type notes.md | pdfstruct-create --name NOTES --format docx               text from standard input
+```
+
+PowerShell:
+
+```
+Get-Content .\template.md -Raw |
+  pdfstruct-create --name WEBSITE_STRATEGY_AUDIT_TEMPLATE --format docx --output "C:\Documents\Templates"
+```
+
+| Option | Effect |
+|---|---|
+| `--name NAME` | File name without folder and extension. Default: the name of `--content-file`. Required with standard input. |
+| `--content-file FILE` | UTF-8 text or Markdown file. Without it the text is read from standard input. |
+| `--format FMT` | `docx`, `pdf`, `html`, `md` or `txt`. Repeat it or separate with commas. Default: `docx`. |
+| `--output DIR` | Output folder, created when missing. Default: the current folder. |
+| `--type` | `markdown` or `text`. Default: `markdown`, and `text` for a `.txt` file. |
+| `--overwrite` | Replace existing files. Without it they are kept and the command ends with `CONFLICT`. |
+
+- Output names are exact: `--name NOTES --format docx,pdf` writes `NOTES.docx` and `NOTES.pdf`.
+- The command prints one `CREATED: <path>` line per file and short `WARNING:` lines, never
+  the text. Exit code 0: everything was created; 1: a conflict or a failure; 2: the request
+  cannot be used (name, format, missing text).
+- The text file itself is never replaced, also not with `--overwrite`.
+- Windows PowerShell 5.1 re-encodes piped text and can damage non-ASCII characters. Use
+  `--content-file` there, or PowerShell 7.
+- What Markdown is read and what each format looks like:
+  [Claude integration](CLAUDE_INTEGRATION.md#create-a-document-from-conversation-text).
+- Not in the portable package: there, use the **Create from text** tab of the window.
+
 ## Desktop window
 
 ```
@@ -166,11 +211,17 @@ pdfstruct-gui                     open the window
 pdfstruct-gui report.pdf scans    files or folders can be passed
 ```
 
-Drop files or folders on the window or use **Select Files**, tick one or more of the ten
-formats, optionally choose an output folder, press **Convert**. The window shows the current
-file and step, lists the result per file with its warnings, and **Open Output Folder** opens
-the result. **Cancel** stops after the step that is running. OCR is loaded only when a file
-needs it.
+**Convert files** tab: drop files or folders on the window or use **Select Files**, tick one
+or more of the ten formats, optionally choose an output folder, press **Convert**. The window
+shows the current file and step, lists the result per file with its warnings, and **Open
+Output Folder** opens the result. **Cancel** stops after the step that is running. OCR is
+loaded only when a file needs it.
+
+**Create from text** tab: enter a document name, choose **Markdown** or **Plain text**, paste
+or type the text, tick the formats (DOCX, PDF, HTML, Markdown, TXT) and press **Create**.
+Without an output folder the files go to `Documents\PDFStruct`. An existing file is kept and
+reported unless **Replace existing files** is ticked. The text box is plain text only; it is
+not a word processor.
 
 ## Low-level command
 
