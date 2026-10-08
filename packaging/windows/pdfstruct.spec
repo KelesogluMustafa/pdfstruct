@@ -1,8 +1,9 @@
 # PyInstaller spec: PDFStruct portable folder for Windows (proof of build).
 #   pyinstaller --noconfirm --distpath <out> --workpath <work> pdfstruct.spec
-# One folder, two programs that share everything:
-#   PDFStruct.exe       the desktop window (no console)
-#   pdfstruct-cli.exe   the command line (pdfstruct ... --format ...)
+# One folder, three programs that share everything:
+#   PDFStruct.exe          the desktop window (no console)
+#   pdfstruct-cli.exe      the command line (pdfstruct ... --format ...)
+#   pdfstruct-create.exe   text or Markdown to documents (pdfstruct-create --name ...)
 import os
 
 from PyInstaller.utils.hooks import collect_all, collect_data_files, copy_metadata
@@ -37,7 +38,8 @@ for package in ("shapely", "pyclipper", "bidi", "imagesize", "cv2"):
     hiddenimports += h
 hiddenimports += ["pdfstruct.inputs.text", "pdfstruct.inputs.html", "pdfstruct.inputs.docx",
                   "pdfstruct.inputs.image", "pdfstruct.pdfwriter", "pdfstruct.gui.window",
-                  "pdfstruct.gui.worker"]
+                  "pdfstruct.gui.worker", "pdfstruct.gui.create_panel", "pdfstruct.create",
+                  "pdfstruct.docwriter"]
 
 EXCLUDES = ["tkinter", "pytest", "PyInstaller", "mcp", "IPython", "matplotlib"]
 
@@ -49,10 +51,15 @@ def analysis(script):
 
 gui = analysis("entry_gui.py")
 cli = analysis("entry_cli.py")
+create = analysis("entry_create.py")
 
 gui_pyz = PYZ(gui.pure)
 cli_pyz = PYZ(cli.pure)
+create_pyz = PYZ(create.pure)
 gui_exe = EXE(gui_pyz, gui.scripts, [], exclude_binaries=True, name="PDFStruct", console=False)
 cli_exe = EXE(cli_pyz, cli.scripts, [], exclude_binaries=True, name="pdfstruct-cli", console=True)
+create_exe = EXE(create_pyz, create.scripts, [], exclude_binaries=True, name="pdfstruct-create",
+                 console=True)
 
-COLLECT(gui_exe, gui.binaries, gui.datas, cli_exe, cli.binaries, cli.datas, name="PDFStruct")
+COLLECT(gui_exe, gui.binaries, gui.datas, cli_exe, cli.binaries, cli.datas,
+        create_exe, create.binaries, create.datas, name="PDFStruct")

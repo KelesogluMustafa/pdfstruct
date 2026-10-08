@@ -4,8 +4,9 @@
     pip install -e ".[gui,packaging]"
     python packaging/windows/build_portable.py [--out DIR] [--no-zip]
 
-Result: <out>/PDFStruct/ with PDFStruct.exe (window) and pdfstruct-cli.exe (command line),
-plus <out>/PDFStruct-Portable-<version>-win64.zip and its SHA256. No Python is needed on the
+Result: <out>/PDFStruct/ with PDFStruct.exe (window), pdfstruct-cli.exe (command line) and
+pdfstruct-create.exe (text to documents), plus <out>/PDFStruct-Portable-<version>-win64.zip
+and its SHA256. No Python is needed on the
 target machine. OCR models are not bundled; they are downloaded on first OCR use.
 
 The folder bundles Qt for Python (LGPL-3.0) and other third-party packages, so the script puts
@@ -34,8 +35,10 @@ BUNDLED_WITH_LICENSES = ["PySide6_Essentials", "shiboken6", "paddlepaddle", "pad
                          "python-docx", "openpyxl", "shapely", "pyclipper"]
 README = """PDFStruct {version} - portable build for Windows x64
 
-  PDFStruct.exe        the desktop window
-  pdfstruct-cli.exe    the command line, e.g.  pdfstruct-cli.exe report.pdf --format xlsx
+  PDFStruct.exe           the desktop window (tabs: Convert files, Create from text)
+  pdfstruct-cli.exe       the command line, e.g.  pdfstruct-cli.exe report.pdf --format xlsx
+  pdfstruct-create.exe    text or Markdown to DOCX/PDF/HTML/MD/TXT, e.g.
+                          pdfstruct-create.exe --name NOTES --format docx --content-file notes.md
 
 No installation and no Python needed: unpack the folder anywhere and start PDFStruct.exe.
 Keep the "_internal" folder next to the programs.
@@ -92,6 +95,21 @@ def collect_licenses(target: Path) -> None:
         shutil.copyfile(vera, target / "bitstream-vera-license.txt")
 
 
+def remove_build_machine_paths(folder: Path) -> None:
+    """Drop what an editable install records about this machine, then make sure none is left.
+
+    `direct_url.json` in PDFStruct's own metadata names the source folder the package was
+    installed from. Nothing reads it at run time."""
+    for record in (folder / "_internal").glob("pdfstruct-*.dist-info/direct_url.json"):
+        record.unlink()
+    home = str(Path.home())
+    needles = [text.encode(encoding) for text in (home, home.replace("\\", "/"), str(ROOT))
+               for encoding in ("utf-8", "utf-16-le")]
+    for path in (folder / "_internal").glob("*.dist-info/*"):
+        if path.is_file() and any(needle in path.read_bytes() for needle in needles):
+            raise SystemExit(f"{path.name} in {path.parent.name} names a folder of this machine")
+
+
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -114,6 +132,7 @@ def main() -> int:
     run(sys.executable, "-m", "PyInstaller", "--noconfirm", "--log-level", "WARN",
         "--distpath", out, "--workpath", out / "work", HERE / "pdfstruct.spec")
 
+    remove_build_machine_paths(folder)
     shutil.copyfile(ROOT / "LICENSE", folder / "LICENSE.txt")
     shutil.copyfile(ROOT / "THIRD_PARTY_NOTICES.md", folder / "THIRD_PARTY_NOTICES.md")
     (folder / "README.txt").write_text(README.format(version=version), encoding="utf-8")

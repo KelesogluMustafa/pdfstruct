@@ -3,7 +3,7 @@
 
 Run it with the Python of that runtime:
 
-    <runtime>\\Scripts\\python.exe verify_runtime.py --expect 0.2.1
+    <runtime>\\Scripts\\python.exe verify_runtime.py --expect 0.3.0
 
 Checks, in order: the package (version, not editable, loaded from inside the runtime), the
 command line (version and one real conversion), and the MCP server over stdio (initialize,
@@ -151,8 +151,9 @@ def check_mcp(version: str, work: Path) -> str:
             raise Failed("the server does not announce tools")
         server.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
         tools = sorted(tool["name"] for tool in server.request(2, "tools/list")["tools"])
-        if tools != TOOLS:
-            raise Failed(f"tools are {tools}")
+        missing = sorted(set(TOOLS) - set(tools))
+        if missing:  # more tools than these are fine: a newer runtime may have added some
+            raise Failed(f"tools are {tools}; missing {missing}")
         formats = tool_json(server.request(3, "tools/call", {"name": "supported_formats", "arguments": {}}))
         if formats.get("outputs", [])[-1:] != ["pdf"] or formats.get("version") != version:
             raise Failed("supported_formats answered unexpectedly")

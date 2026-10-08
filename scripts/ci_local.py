@@ -7,6 +7,8 @@ over stdio) and the skill archive.
     python scripts/ci_local.py          (from the repository root, inside the dev venv)
 
 Prints one line per step; a step's full output is shown only when it fails.
+The wheel and the sdist are built into the run's own temporary folder, which is removed
+afterwards. Nothing in <repo>/dist is read, written or deleted: release files live there.
 OCR is reported as PASS / SKIPPED / FAIL and never breaks the run when no OCR
 environment is available. Exit code 0 only when every required step passed.
 """
@@ -14,7 +16,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 import tarfile
@@ -24,7 +25,6 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DIST = ROOT / "dist"
 ALIASES = ["pdfjson", "pdfhtml", "pdftxt", "pdfmd", "pdfcsv", "pdfxlsx", "pdfdocx",
            "pdfjsonl", "pdfsqlite"]
 SCRIPTS = ["pdfstruct", *ALIASES]
@@ -81,12 +81,16 @@ def step_tests() -> str:
     return f"{passed}/{total} PASS" + (" (+skipped)" if "skipped" in summary else "")
 
 
-def step_build(version: str) -> tuple[Path, Path]:
-    shutil.rmtree(DIST, ignore_errors=True)
-    sh(sys.executable, "-m", "build", "--outdir", DIST, cwd=ROOT)
-    wheels, sdists = sorted(DIST.glob("*.whl")), sorted(DIST.glob("*.tar.gz"))
+def step_build(version: str, out: Path) -> tuple[Path, Path]:
+    """Build into `out`, a folder of this run. Never <repo>/dist: release files are kept there."""
+    out = out.resolve()
+    if out == ROOT / "dist" or ROOT / "dist" in out.parents:
+        raise StepFailed(f"refusing to build into {out}: <repo>/dist holds release files")
+    out.mkdir(parents=True)  # a fresh folder; an existing one is an error, never emptied
+    sh(sys.executable, "-m", "build", "--outdir", out, cwd=ROOT)
+    wheels, sdists = sorted(out.glob("*.whl")), sorted(out.glob("*.tar.gz"))
     if len(wheels) != 1 or len(sdists) != 1:
-        raise StepFailed(f"expected one wheel and one sdist in {DIST}: {os.listdir(DIST)}")
+        raise StepFailed(f"expected one wheel and one sdist in {out}: {os.listdir(out)}")
     if version not in wheels[0].name or version not in sdists[0].name:
         raise StepFailed(f"built artifacts do not carry version {version}: {wheels[0].name}")
 
@@ -376,17 +380,17 @@ def main() -> int:
     except Exception as exc:
         fail("TESTS", exc)
 
-    wheel = None
-    if version:
-        try:
-            wheel, _ = step_build(version)
-            report("BUILD", "PASS")
-        except Exception as exc:
-            fail("BUILD", exc)
-    else:
-        report("BUILD", "SKIPPED (import failed)")
-
     with tempfile.TemporaryDirectory(prefix="pdfstruct_ci_") as tmp:
+        wheel = None
+        if version:
+            try:
+                wheel, _ = step_build(version, Path(tmp) / "dist")
+                report("BUILD", "PASS")
+            except Exception as exc:
+                fail("BUILD", exc)
+        else:
+            report("BUILD", "SKIPPED (import failed)")
+
         venv, work = Path(tmp) / "venv", Path(tmp) / "work"
         work.mkdir()
         installed = False

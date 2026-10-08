@@ -59,7 +59,7 @@ def test_skill_is_short_and_teaches_the_token_saving_workflow():
                  "create_document(name, content, formats)", "already a file\ngoes through `convert`",
                  "{{PROJECT_NAME}}", "Do not\n  write a temporary TXT or Markdown file",
                  "`overwrite: true` only when the user asked", "Do not repeat the content",
-                 "500,000 characters", "ask only when the place matters"):
+                 "500,000 characters", "content_too_large", "ask only when the place matters"):
         assert rule in text, rule
     assert text.index("inspect(path)") < text.index("convert(paths, formats)") < text.index("read_excerpt(path")
     for claude_code_only in ("Read tool", "Bash", "claude mcp"):
@@ -188,3 +188,66 @@ def test_release_assets_are_complete_reproducible_and_small(tmp_path):
         assert step in guide, step
     for name in ("pdfstruct-plugin.zip", "pdfstruct-skill.zip", f"pdfstruct-{VERSION}.mcpb"):
         assert len(first[name]) < 20_000, f"{name} must not carry a runtime"
+
+
+def test_building_release_files_never_empties_the_release_folder(tmp_path):
+    builder = assets()
+    out = tmp_path / "release-9.9.9"
+    out.mkdir()
+    wheel = out / f"pdfstruct-{VERSION}-py3-none-any.whl"
+    wheel.write_bytes(b"wheel")
+    keep = {"PDFStruct-Portable-9.9.9-win64.zip": b"324 MB of portable build", "notes.txt": b"mine"}
+    for name, data in keep.items():
+        (out / name).write_bytes(data)
+    import sys
+    argv, sys.argv = sys.argv, ["build_release_assets.py", "--out", str(out), "--wheel", str(wheel)]
+    try:
+        assert builder.main() == 0
+    finally:
+        sys.argv = argv
+    for name, data in keep.items():
+        assert (out / name).read_bytes() == data, name
+    assert (out / "pdfstruct-plugin.zip").is_file() and wheel.read_bytes() == b"wheel"
+
+
+def test_local_ci_builds_into_its_own_folder_and_never_touches_dist(tmp_path, monkeypatch):
+    spec = importlib.util.spec_from_file_location("ci_local", TOOL_DIR / "scripts" / "ci_local.py")
+    ci = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ci)
+    assert not hasattr(ci, "DIST")
+    source = (TOOL_DIR / "scripts" / "ci_local.py").read_text(encoding="utf-8")
+    assert "rmtree" not in source and "import shutil" not in source  # it deletes nothing
+
+    repo = tmp_path / "repo"
+    release = repo / "dist" / "release-0.0.1"
+    release.mkdir(parents=True)
+    (release / "PDFStruct-Portable-0.0.1-win64.zip").write_bytes(b"old release")
+    monkeypatch.setattr(ci, "ROOT", repo)
+    built = []
+
+    def fake_build(*command, cwd=None, timeout=900):
+        out = Path(command[command.index("--outdir") + 1])
+        built.append(out)
+        with zipfile.ZipFile(out / f"pdfstruct-{VERSION}-py3-none-any.whl", "w") as wheel:
+            for path in sorted((TOOL_DIR / "src" / "pdfstruct").rglob("*.py")):
+                wheel.writestr(path.relative_to(TOOL_DIR / "src").as_posix(), "")
+            wheel.writestr(f"pdfstruct-{VERSION}.dist-info/entry_points.txt", "\n".join(
+                [f"{name} = pdfstruct.cli:{name}" for name in ci.ALIASES]
+                + ["pdfstruct = pdfstruct.cli:main", "pdfstruct-mcp = pdfstruct.mcp_server:main",
+                   "pdfstruct-create = pdfstruct.cli:create", "pdfstruct-gui = pdfstruct.gui.app:main"]))
+        import tarfile
+        with tarfile.open(out / f"pdfstruct-{VERSION}.tar.gz", "w:gz") as sdist:
+            for name in ("pyproject.toml", "src/pdfstruct/__init__.py", "README.md", "LICENSE"):
+                sdist.add(TOOL_DIR / name, arcname=f"pdfstruct-{VERSION}/{name}")
+        return ""
+    monkeypatch.setattr(ci, "sh", fake_build)
+
+    for inside_dist in (repo / "dist", repo / "dist" / "ci", release):
+        with pytest.raises(ci.StepFailed, match="holds release files"):
+            ci.step_build(VERSION, inside_dist)
+    wheel, sdist = ci.step_build(VERSION, tmp_path / "run" / "dist")
+    assert built == [tmp_path / "run" / "dist"] and wheel.parent == sdist.parent == tmp_path / "run" / "dist"
+    assert [p.name for p in release.iterdir()] == ["PDFStruct-Portable-0.0.1-win64.zip"]
+    assert (release / "PDFStruct-Portable-0.0.1-win64.zip").read_bytes() == b"old release"
+    with pytest.raises(FileExistsError):  # an existing folder is an error, never emptied
+        ci.step_build(VERSION, tmp_path / "run" / "dist")

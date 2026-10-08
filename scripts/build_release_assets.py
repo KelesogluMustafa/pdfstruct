@@ -15,6 +15,9 @@
 
 No archive contains a Python runtime, PDFStruct's dependencies or OCR models. The skill has
 one source, plugin/skills/pdfstruct/SKILL.md; the plugin and the skill ZIP are both built from it.
+
+The output folder is never emptied: the files listed above are written or replaced, and
+anything else in it (a portable ZIP, an older checksum file) is left alone.
 """
 from __future__ import annotations
 
@@ -211,12 +214,12 @@ def main() -> int:
     args = parser.parse_args()
     release = version()
     out = Path(args.out).resolve() if args.out else ROOT / "dist" / f"release-{release}"
-    shutil.rmtree(out, ignore_errors=True)
-    out.mkdir(parents=True)
+    out.mkdir(parents=True, exist_ok=True)
 
     if args.wheel:
         wheel = out / Path(args.wheel).name
-        shutil.copyfile(args.wheel, wheel)
+        if Path(args.wheel).resolve() != wheel:
+            shutil.copyfile(args.wheel, wheel)
         files = [wheel]
     else:
         files = list(build_package(out, release))

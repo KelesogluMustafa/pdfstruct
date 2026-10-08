@@ -62,7 +62,8 @@ goes through `convert` instead.
 - `overwrite: true` only when the user asked to replace the file. On `conflict` nothing was
   written: ask, or use another name.
 - Then report the status and the paths, nothing else. Do not repeat the content.
-- More than 500,000 characters: the text has to be saved as a file; then use `convert`.
+- `content_too_large` (over 500,000 characters or 20,000 paragraphs): the text has to be
+  saved as a file; then use `convert`.
 
 ## 5. When something fails
 
