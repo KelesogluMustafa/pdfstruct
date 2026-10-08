@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """PDFStruct local CI: one command that checks import, tests, build, a clean
-wheel install, every console script, end-to-end runs for the input types, the
-optional extras (desktop window without a display, MCP server over stdio) and the
-skill archive.
+wheel install, every console script, end-to-end runs for the input types, documents
+created from text, the optional extras (desktop window without a display, MCP server
+over stdio) and the skill archive.
 
     python scripts/ci_local.py          (from the repository root, inside the dev venv)
 
@@ -100,11 +100,14 @@ def step_build(version: str) -> tuple[Path, Path]:
         for required in ("pdfstruct/__init__.py", "pdfstruct/cli.py", "pdfstruct/extract.py",
                          "pdfstruct/export.py", "pdfstruct/ocr.py", "pdfstruct/service.py",
                          "pdfstruct/pdfwriter.py", "pdfstruct/mcp_server.py",
+                         "pdfstruct/create.py", "pdfstruct/docwriter.py",
                          "pdfstruct/inputs/__init__.py", "pdfstruct/inputs/image.py",
-                         "pdfstruct/gui/app.py", "pdfstruct/gui/window.py"):
+                         "pdfstruct/gui/app.py", "pdfstruct/gui/window.py",
+                         "pdfstruct/gui/create_panel.py"):
             if required not in names:
                 missing.append(required)
         for extra in ("pdfstruct-mcp = pdfstruct.mcp_server:main",
+                      "pdfstruct-create = pdfstruct.cli:create",
                       "pdfstruct-gui = pdfstruct.gui.app:main"):
             if extra not in declared:
                 missing.append(extra)
@@ -174,6 +177,8 @@ def step_extras(wheel: Path, venv: Path, work: Path) -> str:
     gui = json.loads(line[len("GUI_SMOKE "):])
     if not (gui["visible"] and gui["closed"]) or gui["ocr_loaded"] or len(gui["formats"]) != 10:
         raise StepFailed(f"gui smoke reported: {gui}")
+    if gui.get("tabs") != ["Convert files", "Create from text"] or len(gui["create_formats"]) != 5:
+        raise StepFailed(f"gui smoke: the Create from text tab is missing: {gui}")
 
     note = work / "mcp notiz.txt"
     note.write_text("MCP-GEHEIM Inhalt " * 300, encoding="utf-8")
@@ -181,17 +186,23 @@ def step_extras(wheel: Path, venv: Path, work: Path) -> str:
     client.write_text(MCP_CLIENT, encoding="utf-8")
     out = sh(venv_python(venv), client, note, cwd=work, timeout=600)
     answer = json.loads(out.strip().splitlines()[-1])
-    if answer["tools"] != ["convert", "inspect", "read_excerpt", "search", "supported_formats"]:
+    if answer["tools"] != ["convert", "create_document", "inspect", "read_excerpt", "search",
+                           "supported_formats"]:
         raise StepFailed(f"mcp tools: {answer['tools']}")
     if not answer["converted_ok"] or answer["leaked_text"] or answer["excerpt_chars"] != 2000:
         raise StepFailed(f"mcp answer: {answer}")
     if not (work / "output" / "mcp notiz.txt.pdf").is_file():
         raise StepFailed("mcp convert did not write the pdf output")
+    expected = [str(work / "mcp created" / f"MCP_VORLAGE.{ext}") for ext in ("docx", "pdf")]
+    if answer["created"] != {"status": "created", "outputs": expected, "warnings": []}:
+        raise StepFailed(f"mcp create_document: {answer['created']}")
+    if not all(Path(path).is_file() for path in expected):
+        raise StepFailed("mcp create_document did not write its files")
     return f"PASS (gui {gui['platform']}, mcp stdio)"
 
 
 MCP_CLIENT = '''
-import asyncio, json, sys
+import asyncio, json, os, sys
 import mcp
 from mcp.client.stdio import StdioServerParameters
 
@@ -202,9 +213,12 @@ async def main(path):
         converted = (await client.call_tool("convert", {"paths": [path], "formats": ["pdf", "json"]})).content[0].text
         excerpt = json.loads((await client.call_tool(
             "read_excerpt", {"path_or_output": path, "max_chars": 500000})).content[0].text)
+        created = (await client.call_tool("create_document", {
+            "name": "MCP_VORLAGE", "content": "# MCP-GEHEIM {{PLACEHOLDER}}\\n\\n- eins\\n- zwei\\n",
+            "formats": ["docx", "pdf"], "output_dir": os.path.join(os.path.dirname(path), "mcp created")})).content[0].text
     print(json.dumps({"tools": tools, "converted_ok": json.loads(converted)["ok"],
-                      "leaked_text": "MCP-GEHEIM" in converted,
-                      "excerpt_chars": excerpt["chars_returned"]}))
+                      "leaked_text": "MCP-GEHEIM" in converted + created,
+                      "excerpt_chars": excerpt["chars_returned"], "created": json.loads(created)}))
 
 asyncio.run(main(sys.argv[1]))
 '''
@@ -266,6 +280,37 @@ def step_native(venv: Path, work: Path) -> None:
     out = sh(script_path(venv, "pdfstruct"), pdf, "--format", "pdf", cwd=work)
     if "SKIPPED: 1 (already PDF" not in out or (work / "output" / "belge (ä).pdf").exists():
         raise StepFailed(out)
+
+
+def step_create(venv: Path, work: Path, version: str) -> str:
+    """pdfstruct-create from the clean venv: a content file, standard input, no overwrite."""
+    script = script_path(venv, "pdfstruct-create")
+    if sh(script, "--version", cwd=work).strip() != f"pdfstruct {version}":
+        raise StepFailed("pdfstruct-create --version")
+    text = "# Şablon {{PROJECT_NAME}}\n\nStraße größer – Çağrı\n\n1. eins\n2. zwei\n\n| A | B |\n|---|---|\n| 1 | {{X}} |\n"
+    source = work / "vorlage (ş).md"
+    source.write_text(text, encoding="utf-8")
+    out = sh(script, "--content-file", source, "--name", "CI_TEMPLATE", "--format", "docx,pdf,html,md,txt",
+             "--output", work / "created", cwd=work)
+    names = sorted(p.name for p in (work / "created").iterdir())
+    if names != sorted(f"CI_TEMPLATE.{ext}" for ext in ("docx", "pdf", "html", "md", "txt")):
+        raise StepFailed(f"created files: {names}\n{out}")
+    if out.count("CREATED: ") != 5 or "PROJECT_NAME" in out or "Straße" in out:
+        raise StepFailed("pdfstruct-create must print five paths and no text:\n" + out)
+    if (work / "created" / "CI_TEMPLATE.md").read_text(encoding="utf-8") != text:
+        raise StepFailed("the Markdown output is not the text that went in")
+    if "{{PROJECT_NAME}}" not in (work / "created" / "CI_TEMPLATE.txt").read_text(encoding="utf-8"):
+        raise StepFailed("a placeholder was lost")
+    piped = subprocess.run([str(script), "--name", "CI_TEMPLATE", "--format", "txt", "--output",
+                            str(work / "created")], input=text.encode("utf-8"), cwd=work, env=ENV,
+                           capture_output=True, timeout=300)
+    if piped.returncode != 1 or b"CONFLICT:" not in piped.stdout:
+        raise StepFailed(f"an existing file must be kept: exit {piped.returncode}\n{piped.stdout!r}")
+    piped = subprocess.run([str(script), "--name", "CI_PIPED", "--output", str(work / "created")],
+                           input=text.encode("utf-8"), cwd=work, env=ENV, capture_output=True, timeout=300)
+    if piped.returncode != 0 or not (work / "created" / "CI_PIPED.docx").is_file():
+        raise StepFailed(f"standard input: exit {piped.returncode}\n{piped.stdout!r}{piped.stderr!r}")
+    return "PASS (content file, stdin, 5 formats)"
 
 
 def step_ocr(venv: Path, work: Path) -> str:
@@ -356,6 +401,7 @@ def main() -> int:
             report("WHEEL INSTALL", "SKIPPED (no wheel)")
         for label, step in (("CLI", lambda: step_cli(venv, version)),
                             ("NATIVE", lambda: step_native(venv, work) or "PASS"),
+                            ("CREATE", lambda: step_create(venv, work, version)),
                             ("OCR", lambda: step_ocr(venv, work)),
                             ("EXTRAS", lambda: step_extras(wheel, venv, work))):
             if not installed:

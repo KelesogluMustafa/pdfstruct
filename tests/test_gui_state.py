@@ -87,3 +87,39 @@ def test_cli_and_service_never_import_qt():
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout.strip().splitlines()[-1]) == []
+
+
+def test_create_request_and_result_texts(tmp_path):
+    for fields, message in ((("", "text", ["docx"]), "Enter a document name."),
+                            (("N", "  \n", ["docx"]), "Enter or paste the text."),
+                            (("N", "text", []), "Choose at least one output format.")):
+        with pytest.raises(ValueError, match=message):
+            state.build_create_request(*fields, None)
+    request = state.build_create_request("  NOTES ", "# T", ["docx", "pdf"], f"  {tmp_path}  ", "text", True)
+    assert (request.name, request.formats, request.output_dir) == ("NOTES", ["docx", "pdf"], str(tmp_path))
+    assert request.content_type == "text" and request.overwrite is True
+    assert state.build_create_request("N", "t", ["md"], "").output_dir is None  # the service's default
+    assert list(state.CREATE_FORMAT_LABELS) == ["docx", "pdf", "html", "md", "txt"]
+
+    created = {"status": "created", "outputs": [str(tmp_path / "N.docx"), str(tmp_path / "N.pdf")],
+               "warnings": ["pdf_missing_glyphs: 1 character(s)"]}
+    assert state.create_result_lines(created) == [f"✓ N.docx    ({tmp_path})", f"✓ N.pdf    ({tmp_path})",
+                                                  "    ! pdf_missing_glyphs: 1 character(s)"]
+    assert state.create_summary(created) == "Done: 2 files created"
+    conflict = {"status": "conflict", "outputs": [], "warnings": [], "error_code": "already_exists",
+                "error": "already exists, nothing was written: N.docx"}
+    assert state.create_result_lines(conflict) == ["✗ already exists, nothing was written: N.docx"]
+    assert "Replace existing files" in state.create_summary(conflict)
+    assert state.create_summary({"status": "invalid", "outputs": [], "warnings": [],
+                                 "error": "name is empty"}) == "Not created: name is empty"
+
+
+def test_create_core_needs_no_mcp_no_qt_no_ocr_and_no_network_library(tmp_path):
+    code = ("import sys, json; from pdfstruct import create;"
+            "r = create.create_document(create.CreateRequest('N', '# T [l](https://example.com) ![i](https://example.com/i.png)',"
+            " ['docx', 'pdf', 'html', 'md', 'txt'], sys.argv[1]));"
+            "print(json.dumps([r.status, sorted({m.split('.')[0] for m in sys.modules} & {'PySide6', 'shiboken6',"
+            " 'paddle', 'paddleocr', 'mcp', 'anthropic', 'openai', 'requests', 'urllib3', 'httpx', 'aiohttp'})]))")
+    result = subprocess.run([sys.executable, "-c", code, str(tmp_path)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout.strip().splitlines()[-1]) == ["created", []]

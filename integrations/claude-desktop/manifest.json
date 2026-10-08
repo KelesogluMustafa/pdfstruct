@@ -2,9 +2,9 @@
   "manifest_version": "0.3",
   "name": "pdfstruct",
   "display_name": "PDFStruct",
-  "version": "0.2.1",
-  "description": "Convert documents and images locally with PDFStruct. Claude gets statuses and file names, not the document content.",
-  "long_description": "PDFStruct converts PDF, DOCX, TXT, Markdown, HTML and images on this computer into JSON, HTML, TXT, Markdown, CSV, XLSX, DOCX, JSONL, SQLite and PDF, with OCR when a page needs it.\n\nThis extension is a launcher. It starts the active PDFStruct runtime that install-windows.cmd put into your user profile (.local\\pdfstruct\\current). Install that first. The extension does not bundle PDFStruct, needs no API key and sends nothing to a third-party service.\n\nWorkflow: convert returns statuses and output file names only; search and read_excerpt return small, capped pieces of text and only when you ask to read a document.",
+  "version": "0.3.0",
+  "description": "Convert documents and images locally with PDFStruct, and save text from the conversation as local documents. Claude gets statuses and file names, not the document content.",
+  "long_description": "PDFStruct converts PDF, DOCX, TXT, Markdown, HTML and images on this computer into JSON, HTML, TXT, Markdown, CSV, XLSX, DOCX, JSONL, SQLite and PDF, with OCR when a page needs it.\n\nThis extension is a launcher. It starts the active PDFStruct runtime that install-windows.cmd put into your user profile (.local\\pdfstruct\\current). Install that first. The extension does not bundle PDFStruct, needs no API key and sends nothing to a third-party service.\n\nWorkflow: convert returns statuses and output file names only; search and read_excerpt return small, capped pieces of text and only when you ask to read a document. create_document writes text from the conversation as DOCX, PDF, HTML, Markdown or TXT files on this computer and returns only the paths.",
   "author": {
     "name": "KelesogluMustafa",
     "url": "https://github.com/KelesogluMustafa"
@@ -50,6 +50,10 @@
     {
       "name": "read_excerpt",
       "description": "Read at most 2000 characters of extracted text from a converted document."
+    },
+    {
+      "name": "create_document",
+      "description": "Save text from the conversation as local DOCX, PDF, HTML, Markdown or TXT files. Returns status and paths only."
     }
   ],
   "compatibility": {

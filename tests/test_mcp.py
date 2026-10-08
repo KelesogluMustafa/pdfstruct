@@ -1,12 +1,13 @@
 """Local MCP server: content-free conversions, capped excerpts, real stdio protocol."""
 import asyncio
+import importlib.util
 import json
 import sys
 from pathlib import Path
 
 import pytest
 
-from conftest import make_docx, make_text_pdf
+from conftest import TOOL_DIR, make_docx, make_text_pdf
 from pdfstruct import mcp_server
 
 SECRET = "STRENG GEHEIMER VERTRAGSINHALT 4711"
@@ -130,7 +131,8 @@ def test_real_stdio_protocol_round_trip(tmp_path):
             return tools, formats, converted, excerpt
 
     tools, formats, converted, excerpt = asyncio.run(scenario())
-    assert tools == {"supported_formats", "inspect", "convert", "read_excerpt", "search"}
+    assert tools == {"supported_formats", "inspect", "convert", "read_excerpt", "search",
+                     "create_document"}
 
     def payload(result) -> dict:
         assert not result.is_error and len(result.content) == 1  # one compact text block
@@ -143,3 +145,117 @@ def test_real_stdio_protocol_round_trip(tmp_path):
     assert (tmp_path / "output" / "bericht.docx.pdf").is_file()
     read = payload(excerpt)
     assert read["chars_returned"] <= 2000 and "Quartalsbericht" in read["untrusted_document_text"]
+
+
+# ---------------------------------------------------------------- create_document
+
+DRAFT = f"# Vorlage {{{{PROJECT_NAME}}}}\n\n{SECRET}\n\n- {{{{REPO_PATH}}}}\n- Çağrı Straße\n\n" + "Fülltext. " * 300
+
+
+def test_create_document_returns_status_and_paths_only(tmp_path):
+    answer = mcp_server.create_document("VORLAGE", DRAFT, ["docx", "pdf", "md"], str(tmp_path))
+    assert answer == {"status": "created", "warnings": [],
+                      "outputs": [str(tmp_path / f"VORLAGE.{ext}") for ext in ("docx", "pdf", "md")]}
+    text = mcp_server._dump(answer)
+    assert "GEHEIM" not in text and "Fülltext" not in text and "PROJECT_NAME" not in text
+    assert len(text) < 200 + 3 * len(str(tmp_path))
+    assert (tmp_path / "VORLAGE.md").read_text(encoding="utf-8") == DRAFT + "\n"
+
+    default = mcp_server.create_document("NUR_WORD", DRAFT, output_dir=str(tmp_path))
+    assert default["outputs"] == [str(tmp_path / "NUR_WORD.docx")]  # docx unless asked otherwise
+    as_text = mcp_server.create_document("ROH", DRAFT, ["txt"], str(tmp_path), content_type="text")
+    assert as_text["status"] == "created"
+    assert (tmp_path / "ROH.txt").read_text(encoding="utf-8").startswith("# Vorlage {{PROJECT_NAME}}\n")
+
+
+def test_create_document_errors_are_compact_and_never_quote_the_text(tmp_path):
+    mcp_server.create_document("VORLAGE", DRAFT, ["md"], str(tmp_path))
+    answers = {
+        "conflict": mcp_server.create_document("VORLAGE", DRAFT, ["md", "docx"], str(tmp_path)),
+        "name": mcp_server.create_document("..\\..\\VORLAGE", DRAFT, ["md"], str(tmp_path)),
+        "reserved": mcp_server.create_document("NUL", DRAFT, ["md"], str(tmp_path)),
+        "format": mcp_server.create_document("X", DRAFT, ["xlsx"], str(tmp_path)),
+        "relative": mcp_server.create_document("X", DRAFT, ["md"], "some/relative/folder"),
+        "empty": mcp_server.create_document("X", "   ", ["md"], str(tmp_path)),
+        "type": mcp_server.create_document("X", DRAFT, ["md"], str(tmp_path), content_type="rtf"),
+    }
+    assert {key: (a["status"], a["error_code"]) for key, a in answers.items()} == {
+        "conflict": ("conflict", "already_exists"), "name": ("invalid", "invalid_name"),
+        "reserved": ("invalid", "invalid_name"), "format": ("invalid", "unsupported_format"),
+        "relative": ("invalid", "invalid_output_dir"), "empty": ("invalid", "empty_content"),
+        "type": ("invalid", "invalid_content_type")}
+    for answer in answers.values():
+        text = mcp_server._dump(answer)
+        assert answer["outputs"] == [] and set(answer) == {"status", "outputs", "warnings", "error_code", "error"}
+        assert len(text) < 400 and "GEHEIM" not in text and "Fülltext" not in text
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["VORLAGE.md"]  # nothing else appeared
+    replaced = mcp_server.create_document("VORLAGE", "neu", ["md"], str(tmp_path), overwrite=True)
+    assert replaced["status"] == "created" and (tmp_path / "VORLAGE.md").read_text(encoding="utf-8") == "neu\n"
+
+
+def test_six_tools_and_the_first_five_keep_their_schemas():
+    pytest.importorskip("mcp")
+    tools = {tool.name: tool for tool in asyncio.run(mcp_server.build_server().list_tools())}
+
+    def shape(name):
+        schema = tools[name].input_schema
+        return sorted(schema.get("properties", {})), sorted(schema.get("required", []))
+
+    assert {name: shape(name) for name in tools if name != "create_document"} == {
+        "supported_formats": ([], []),
+        "inspect": (["path"], ["path"]),
+        "convert": (["force_ocr", "formats", "output_dir", "paths"], ["formats", "paths"]),
+        "read_excerpt": (["max_chars", "offset", "page", "path_or_output"], ["path_or_output"]),
+        "search": (["limit", "path_or_output", "query"], ["path_or_output", "query"])}
+    assert tools["convert"].description.startswith("Convert local files (PDF, DOCX, TXT, MD, HTML, images)")
+    assert shape("create_document") == (
+        ["content", "content_type", "formats", "name", "output_dir", "overwrite"], ["content", "name"])
+    properties = tools["create_document"].input_schema["properties"]
+    assert properties["formats"]["default"] == ["docx"] and properties["overwrite"]["default"] is False
+    assert properties["content_type"]["enum"] == ["markdown", "text"]
+    assert properties["content_type"]["default"] == "markdown"
+    assert len(tools["create_document"].description) < 260  # it is sent with every conversation
+    assert "create_document" in mcp_server.INSTRUCTIONS and len(mcp_server.INSTRUCTIONS) < 800
+
+
+def test_create_document_over_real_stdio_keeps_stdout_pure_and_logs_no_text(tmp_path):
+    """The installed server process, driven with raw JSON-RPC lines as Claude does."""
+    pytest.importorskip("mcp")
+    spec = importlib.util.spec_from_file_location("verify_runtime", TOOL_DIR / "scripts" / "verify_runtime.py")
+    runtime = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(runtime)
+    server = runtime.Server(runtime.script("pdfstruct-mcp"))
+    try:
+        init = server.request(1, "initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
+                                                 "clientInfo": {"name": "test", "version": "1"}})
+        assert init["serverInfo"]["name"] == "pdfstruct"
+        server.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        listed = server.request(2, "tools/list")["tools"]
+        assert sorted(tool["name"] for tool in listed) == runtime.TOOLS and len(listed) == 6
+
+        def call(number, **arguments):
+            raw = server.request(number, "tools/call", {"name": "create_document", "arguments": arguments})
+            assert raw.get("isError") in (None, False) and len(raw["content"]) == 1
+            return raw["content"][0]["text"], json.loads(raw["content"][0]["text"])
+
+        text, created = call(3, name="VORLAGE", content=DRAFT, formats=["docx", "html"], output_dir=str(tmp_path))
+        assert created == {"status": "created", "warnings": [],
+                           "outputs": [str(tmp_path / "VORLAGE.docx"), str(tmp_path / "VORLAGE.html")]}
+        assert "GEHEIM" not in text and "Fülltext" not in text
+        text, conflict = call(4, name="VORLAGE", content=DRAFT, output_dir=str(tmp_path))
+        assert conflict["status"] == "conflict" and "GEHEIM" not in text and len(text) < 400
+        text, invalid = call(5, name="a/b", content=DRAFT, output_dir=str(tmp_path))
+        assert invalid["error_code"] == "invalid_name" and "GEHEIM" not in text
+        bad = server.request(6, "tools/call", {"name": "create_document", "arguments": {
+            "name": "X", "content": DRAFT, "content_type": "rtf", "output_dir": str(tmp_path)}})
+        assert bad.get("isError") and "GEHEIM" not in json.dumps(bad)  # schema error, still no text
+        formats = server.request(7, "tools/call", {"name": "supported_formats", "arguments": {}})
+        assert "pdf" in json.loads(formats["content"][0]["text"])["outputs"]  # the others still answer
+    finally:
+        server.close()
+    assert server.stdout_lines >= 7  # every line on stdout parsed as a JSON-RPC message
+    assert b"GEHEIM" not in server.stderr and "Fülltext".encode() not in server.stderr
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["VORLAGE.docx", "VORLAGE.html"]
+    from docx import Document
+    document = Document(str(tmp_path / "VORLAGE.docx"))
+    assert document.paragraphs[0].style.name == "Heading 1" and SECRET in document.paragraphs[1].text

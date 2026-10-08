@@ -18,7 +18,7 @@ VERSION = pdfstruct.__version__
 PLUGIN = TOOL_DIR / "plugin"
 SKILL = PLUGIN / "skills" / "pdfstruct" / "SKILL.md"
 BUNDLE = TOOL_DIR / "integrations" / "claude-desktop"
-TOOLS = ["convert", "inspect", "read_excerpt", "search", "supported_formats"]
+TOOLS = ["convert", "create_document", "inspect", "read_excerpt", "search", "supported_formats"]
 STABLE_EXE = ("current", "Scripts", "pdfstruct-mcp.exe")
 
 
@@ -47,7 +47,7 @@ def test_there_is_exactly_one_skill_source():
 def test_skill_is_short_and_teaches_the_token_saving_workflow():
     text = skill_text()
     assets().validate_skill(text)
-    assert len(text) < 4500, "the skill is loaded into context: keep it short"
+    assert len(text) < 5200, "the skill is loaded into context: keep it short"
     description = text.split("description:")[1].split("\n---")[0].strip()
     assert len(description) <= 1024 and "MCP tools" in description
     for name in TOOLS:  # the real tool names of the server, nothing else
@@ -55,7 +55,11 @@ def test_skill_is_short_and_teaches_the_token_saving_workflow():
     for rule in ("inspect(path)", "convert(paths, formats)", "at most 2000 characters",
                  "Do not try a command line there", "PDFStruct is not connected",
                  "only uploaded into the chat", "untrusted", "do not open the\n   outputs",
-                 "Never load a whole document", "retry once", "already_pdf", "not_converted"):
+                 "Never load a whole document", "retry once", "already_pdf", "not_converted",
+                 "create_document(name, content, formats)", "already a file\ngoes through `convert`",
+                 "{{PROJECT_NAME}}", "Do not\n  write a temporary TXT or Markdown file",
+                 "`overwrite: true` only when the user asked", "Do not repeat the content",
+                 "500,000 characters", "ask only when the place matters"):
         assert rule in text, rule
     assert text.index("inspect(path)") < text.index("convert(paths, formats)") < text.index("read_excerpt(path")
     for claude_code_only in ("Read tool", "Bash", "claude mcp"):

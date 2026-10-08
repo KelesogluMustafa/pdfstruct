@@ -7,7 +7,7 @@ Run it with the Python of that runtime:
 
 Checks, in order: the package (version, not editable, loaded from inside the runtime), the
 command line (version and one real conversion), and the MCP server over stdio (initialize,
-tools/list, two tools/call, and that stdout carries nothing but protocol messages).
+tools/list, three tools/call, and that stdout carries nothing but protocol messages).
 Prints one line per check and exits 0 only when all pass. It reads no user documents.
 """
 from __future__ import annotations
@@ -22,7 +22,7 @@ import tempfile
 import threading
 from pathlib import Path
 
-TOOLS = ["convert", "inspect", "read_excerpt", "search", "supported_formats"]
+TOOLS = ["convert", "create_document", "inspect", "read_excerpt", "search", "supported_formats"]
 MARKER = "VERIFY-RUNTIME-MARKER-7391"
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -168,6 +168,16 @@ def check_mcp(version: str, work: Path) -> str:
             raise Failed("the convert answer is not compact or carries document text")
         if not (work / "output" / "mcp check.txt.md").is_file():
             raise Failed("convert did not write its output file")
+        raw = server.request(5, "tools/call", {"name": "create_document", "arguments": {
+            "name": "created check", "content": f"# {MARKER}\n\n{{{{PLACEHOLDER}}}}",
+            "formats": ["docx", "md"], "output_dir": str(work)}})
+        text = raw["content"][0]["text"]
+        created = tool_json(raw)
+        if created.get("status") != "created" or created.get("outputs") != [
+                str(work / "created check.docx"), str(work / "created check.md")]:
+            raise Failed(f"create_document answered: {text[:200]}")
+        if MARKER in text or "{{PLACEHOLDER}}" not in (work / "created check.md").read_text(encoding="utf-8"):
+            raise Failed("create_document returned the text or did not keep a placeholder")
     finally:
         server.close()
     return f"{server.stdout_lines} protocol lines on stdout, {len(server.stderr)} bytes on stderr"

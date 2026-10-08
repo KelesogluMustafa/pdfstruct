@@ -54,6 +54,7 @@ pdfxlsx = "pdfstruct.cli:pdfxlsx"
 pdfdocx = "pdfstruct.cli:pdfdocx"
 pdfjsonl = "pdfstruct.cli:pdfjsonl"
 pdfsqlite = "pdfstruct.cli:pdfsqlite"
+pdfstruct-create = "pdfstruct.cli:create"
 pdfstruct-mcp = "pdfstruct.mcp_server:main"
 
 [project.gui-scripts]

@@ -12,6 +12,9 @@ pdfstruct.extract and format generation in pdfstruct.export.
 
 pdfjson, pdfhtml, pdftxt, pdfmd, pdfcsv, pdfxlsx, pdfdocx, pdfjsonl and pdfsqlite
 are the same command with the format fixed.
+
+    pdfstruct-create --name NOTES --format docx,pdf --content-file notes.md
+                                      text or Markdown (a file or standard input) -> documents
 """
 from __future__ import annotations
 
@@ -305,6 +308,95 @@ def _alias(command: str):
 
 pdfjson, pdfhtml, pdftxt, pdfmd, pdfcsv, pdfxlsx, pdfdocx, pdfjsonl, pdfsqlite = (
     _alias(command) for command in ALIAS_COMMANDS)
+
+
+CREATE_EXAMPLES = """examples:
+  pdfstruct-create --name NOTES --content-file notes.md
+  pdfstruct-create --name NOTES --format docx,pdf --output "C:\\Documents" --content-file notes.md
+  type notes.md | pdfstruct-create --name NOTES --format docx"""
+
+
+def build_create_parser() -> argparse.ArgumentParser:
+    from . import create as creator
+
+    ap = argparse.ArgumentParser(
+        prog="pdfstruct-create", epilog=CREATE_EXAMPLES,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Create local documents from text or Markdown. The text comes from "
+                    "--content-file or from standard input, never from an argument.")
+    ap.add_argument("--version", action="version", version=f"pdfstruct {__version__}")
+    ap.add_argument("--name", help="file name of the documents, without folder and extension "
+                                   "(default: the name of --content-file)")
+    ap.add_argument("--content-file", metavar="FILE",
+                    help="UTF-8 text or Markdown file; without it the text is read from "
+                         "standard input")
+    ap.add_argument("--format", action="append", default=[], metavar="FMT",
+                    help=f"{', '.join(creator.FORMATS)}; repeat or comma-separate for several "
+                         "(default: docx)")
+    ap.add_argument("--output", metavar="DIR", help="output folder (default: the current folder)")
+    ap.add_argument("--type", choices=creator.CONTENT_TYPES, dest="content_type",
+                    help="how to read the text (default: markdown; text for a .txt file)")
+    ap.add_argument("--overwrite", action="store_true",
+                    help="replace existing files; without it they are kept and reported")
+    return ap
+
+
+def create(argv: list[str] | None = None, cwd: Path | None = None, stdin=None) -> int:
+    """pdfstruct-create: text or Markdown -> DOCX, PDF, HTML, Markdown, TXT.
+
+    Prints the created paths and short warnings, never the text. Exit code 0 when every
+    file was created, 1 for a conflict or a failure, 2 for a request that cannot be used."""
+    from . import create as creator
+    from .inputs import text as text_input
+
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+    args = build_create_parser().parse_args(sys.argv[1:] if argv is None else argv)
+    cwd = (cwd or Path.cwd()).resolve()
+    out_dir = resolve_output(args.output, cwd, cwd)
+    source = None
+    if args.content_file:
+        source = (cwd / Path(args.content_file).expanduser()).resolve()
+        try:
+            data = source.read_bytes()
+        except OSError:
+            print(f"ERROR: cannot read {source}")
+            return 2
+    else:
+        stream = stdin if stdin is not None else sys.stdin
+        if stream is None or stream.isatty():
+            print("ERROR: no text. Use --content-file FILE or pipe the text in.\n\n" + CREATE_EXAMPLES)
+            return 2
+        data = stream.buffer.read()
+    name = args.name or (source.stem if source else "")
+    if not name:
+        print("ERROR: --name is required when the text comes from standard input")
+        return 2
+    formats = [f for item in args.format for f in item.split(",") if f.strip()] or list(
+        creator.DEFAULT_FORMATS)
+    try:  # the text file itself is never replaced, not even with --overwrite
+        stem = creator.safe_name(name)[0]
+        written = {(stem + creator.FORMATS[f]).lower() for f in creator.normalize_formats(formats)}
+        if source and source.parent == out_dir and source.name.lower() in written:
+            print(f"ERROR: {source.name} is the text file itself; choose another --name or --output")
+            return 2
+    except creator.CreateError:
+        pass  # reported by the service below, with its own message
+    content, notes = text_input.decode(data)
+    content_type = args.content_type or (
+        "text" if source and source.suffix.lower() == ".txt" else "markdown")
+    result = creator.create_document(creator.CreateRequest(
+        name=name, content=content, formats=formats, output_dir=out_dir,
+        content_type=content_type, overwrite=args.overwrite))
+    for path in result.outputs:
+        print(f"CREATED: {path}")
+    for warning in [*notes, *result.warnings]:
+        print(f"WARNING: {warning}")
+    if not result.ok:
+        print(f"{result.status.upper()}: {result.error}")
+        return 2 if result.status == "invalid" else 1
+    return 0
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@
 
 It owns no conversion logic. Convert builds a service.JobRequest and hands it to the
 worker thread; everything shown here comes from the service's events and result.
+A second tab, “Create from text” (create_panel.py), writes typed or pasted text as documents.
 """
 from __future__ import annotations
 
@@ -11,10 +12,12 @@ from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QFileDialog, QGridLayout, QGroupBox,
                                QHBoxLayout, QLabel, QLineEdit, QListWidget, QMainWindow,
-                               QMessageBox, QProgressBar, QPushButton, QVBoxLayout, QWidget)
+                               QMessageBox, QProgressBar, QPushButton, QTabWidget, QVBoxLayout,
+                               QWidget)
 
 from .. import __version__
 from . import state, worker
+from .create_panel import CreatePanel
 
 DEFAULT_OUTPUT_HINT = "an “output” folder next to each file"
 
@@ -125,7 +128,11 @@ class MainWindow(QMainWindow):
         results_layout.addWidget(self.summary_label)
         layout.addWidget(results_box, 2)
 
-        self.setCentralWidget(root)
+        self.create_panel = CreatePanel()
+        self.tabs = QTabWidget()
+        self.tabs.addTab(root, "Convert files")
+        self.tabs.addTab(self.create_panel, "Create from text")
+        self.setCentralWidget(self.tabs)
 
     # ------------------------------------------------------------ queue
     def add_paths(self, paths) -> dict:
@@ -155,7 +162,7 @@ class MainWindow(QMainWindow):
         self._refresh()
 
     def dragEnterEvent(self, event) -> None:
-        if event.mimeData().hasUrls() and not self.is_running():
+        if event.mimeData().hasUrls() and not self.is_running() and self.tabs.currentIndex() == 0:
             event.acceptProposedAction()
 
     def dropEvent(self, event) -> None:
@@ -273,6 +280,7 @@ class MainWindow(QMainWindow):
             self.worker.cancel()
             self.job_thread.quit()
             self.job_thread.wait(30000)
+        self.create_panel.wait()
         event.accept()
 
 
@@ -281,4 +289,6 @@ def describe(window: MainWindow) -> dict:
     return {"title": window.windowTitle(), "visible": window.isVisible(),
             "formats": [box.text() for box in window.format_boxes.values()],
             "queue": [Path(p).name for p in window.queue.files],
-            "convert_enabled": window.convert_button.isEnabled()}
+            "convert_enabled": window.convert_button.isEnabled(),
+            "tabs": [window.tabs.tabText(index) for index in range(window.tabs.count())],
+            "create_formats": [box.text() for box in window.create_panel.format_boxes.values()]}

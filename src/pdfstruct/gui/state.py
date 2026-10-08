@@ -7,7 +7,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from .. import inputs, service
+from .. import create, inputs, service
 
 FORMAT_LABELS = {"json": "JSON", "html": "HTML", "txt": "TXT", "md": "Markdown", "csv": "CSV",
                  "xlsx": "XLSX", "docx": "DOCX", "jsonl": "JSONL", "sqlite": "SQLite", "pdf": "PDF"}
@@ -17,6 +17,8 @@ FILE_DIALOG_FILTER = ("Supported files (" + " ".join(f"*{ext}" for ext in sorted
 PHASE_TEXT = {"extract": "Reading", "reuse": "Using existing extraction", "ocr": "OCR",
               "export": "Writing"}
 STATUS_MARK = {"succeeded": "✓", "failed": "✗", "skipped": "–", "cancelled": "○"}
+CREATE_FORMAT_LABELS = {"docx": "DOCX", "pdf": "PDF", "html": "HTML", "md": "Markdown", "txt": "TXT"}
+CONTENT_TYPE_LABELS = {"markdown": "Markdown", "text": "Plain text"}
 
 
 class Queue:
@@ -177,3 +179,37 @@ def output_folders(result: dict) -> list[str]:
             if folder not in folders:
                 folders.append(folder)
     return folders
+
+
+# ---------------------------------------------------------------- create from text
+
+def build_create_request(name: str, content: str, formats, output_dir: str | None,
+                         content_type: str = "markdown", overwrite: bool = False) -> create.CreateRequest:
+    """Raises ValueError with a message for the user when a field is still empty."""
+    if not (name or "").strip():
+        raise ValueError("Enter a document name.")
+    if not (content or "").strip():
+        raise ValueError("Enter or paste the text.")
+    if not formats:
+        raise ValueError("Choose at least one output format.")
+    return create.CreateRequest(name=name.strip(), content=content, formats=list(formats),
+                                output_dir=(output_dir or "").strip() or None,
+                                content_type=content_type, overwrite=bool(overwrite))
+
+
+def create_result_lines(result: dict) -> list[str]:
+    """Rows of the result list for a CreateResult dict: paths and warnings, never the text."""
+    lines = [f"✓ {Path(target).name}    ({Path(target).parent})" for target in result["outputs"]]
+    lines += [f"    ! {warning}" for warning in result["warnings"]]
+    if result["status"] != "created":
+        lines.append(f"✗ {result.get('error') or result['status']}")
+    return lines
+
+
+def create_summary(result: dict) -> str:
+    count = len(result["outputs"])
+    if result["status"] == "created":
+        return f"Done: {count} file{'' if count == 1 else 's'} created"
+    if result["status"] == "conflict":
+        return "Nothing replaced: tick “Replace existing files” or choose another name or folder."
+    return "Not created: " + (result.get("error") or result["status"])

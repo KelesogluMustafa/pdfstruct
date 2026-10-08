@@ -5,7 +5,8 @@ Brings two things:
 - the **PDFStruct skill** (`skills/pdfstruct/SKILL.md`): when and how Claude uses PDFStruct
   without reading documents into the conversation;
 - the **MCP server registration** (`.mcp.json`): starts the PDFStruct you installed, with the
-  tools `convert`, `inspect`, `supported_formats`, `search` and `read_excerpt`.
+  tools `convert`, `inspect`, `supported_formats`, `search`, `read_excerpt` and
+  `create_document`.
 
 The plugin contains no PDFStruct code, no Python and no OCR models.
 
@@ -28,7 +29,7 @@ The normal chat in Claude Desktop does not start plugin MCP servers. Install the
 
 If you use this plugin, do not also upload `pdfstruct-skill.zip`, do not keep a copy of the skill
 in `%USERPROFILE%\.claude\skills\pdfstruct`, and remove a hand-made registration
-(`claude mcp remove pdfstruct --scope user`). Otherwise Claude lists the skill and the five
+(`claude mcp remove pdfstruct --scope user`). Otherwise Claude lists the skill and the six
 tools twice.
 
 ## Disable or remove

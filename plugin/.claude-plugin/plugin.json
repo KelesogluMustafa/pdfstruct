@@ -1,7 +1,7 @@
 {
   "name": "pdfstruct",
-  "version": "0.2.1",
-  "description": "Convert documents and images locally with PDFStruct. Bundles the PDFStruct skill and registers the installed PDFStruct MCP server; requires PDFStruct installed with install-windows.cmd.",
+  "version": "0.3.0",
+  "description": "Convert documents and images locally with PDFStruct, and save text from the conversation as local documents. Bundles the PDFStruct skill and registers the installed PDFStruct MCP server; requires PDFStruct installed with install-windows.cmd.",
   "author": {
     "name": "Mustafa Kelesoğlu",
     "url": "https://github.com/KelesogluMustafa"
