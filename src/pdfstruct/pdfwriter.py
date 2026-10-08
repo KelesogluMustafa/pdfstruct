@@ -10,13 +10,14 @@ German). Characters they lack are reported, not silently dropped.
 """
 from __future__ import annotations
 
+import io
 import os
 from pathlib import Path
-from xml.sax.saxutils import escape
+from xml.sax.saxutils import escape, quoteattr
 
 from . import inputs
 
-FONT, FONT_BOLD = "Vera", "VeraBd"
+FONT, FONT_BOLD, FONT_ITALIC, FONT_BOLD_ITALIC = "Vera", "VeraBd", "VeraIt", "VeraBI"
 MARGIN = 56.7          # 2 cm
 IMAGE_MARGIN = 18.0
 MAX_IMAGE_SIDE = 3508  # A4 at 300 dpi; larger pictures are downscaled inside the PDF
@@ -30,8 +31,10 @@ def _fonts():
     if FONT not in pdfmetrics.getRegisteredFontNames():
         pdfmetrics.registerFont(TTFont(FONT, "Vera.ttf"))
         pdfmetrics.registerFont(TTFont(FONT_BOLD, "VeraBd.ttf"))
-        pdfmetrics.registerFontFamily(FONT, normal=FONT, bold=FONT_BOLD, italic=FONT,
-                                      boldItalic=FONT_BOLD)
+        pdfmetrics.registerFont(TTFont(FONT_ITALIC, "VeraIt.ttf"))
+        pdfmetrics.registerFont(TTFont(FONT_BOLD_ITALIC, "VeraBI.ttf"))
+        pdfmetrics.registerFontFamily(FONT, normal=FONT, bold=FONT_BOLD, italic=FONT_ITALIC,
+                                      boldItalic=FONT_BOLD_ITALIC)
     return pdfmetrics.getFont(FONT)
 
 
@@ -49,6 +52,23 @@ def _missing_glyphs(font, texts) -> list[str]:
 def _markup(text: str) -> str:
     from .export import clean
     return escape(clean(text)).replace("\n", "<br/>")
+
+
+def _block_markup(block: dict) -> str:
+    """Escaped text of a block. Only documents created from text carry inline `spans`."""
+    if "spans" not in block:
+        return _markup(block.get("text", ""))
+    out = []
+    for span in block["spans"]:
+        piece = _markup(span["text"])
+        if span.get("italic"):
+            piece = f"<i>{piece}</i>"
+        if span.get("bold"):
+            piece = f"<b>{piece}</b>"
+        if span.get("href"):
+            piece = f'<a href={quoteattr(span["href"])} color="#0563c1">{piece}</a>'
+        out.append(piece)
+    return "".join(out)
 
 
 def _styles():
@@ -82,8 +102,9 @@ def _table(rows: list[list[str]], width: float, styles):
 
 
 def _flowables(blocks: list[dict], width: float, styles) -> list:
+    from reportlab.lib import colors
     from reportlab.lib.styles import ParagraphStyle
-    from reportlab.platypus import Paragraph, Spacer
+    from reportlab.platypus import HRFlowable, Paragraph, Spacer
 
     story, counters = [], {}
     index = 0
@@ -105,7 +126,8 @@ def _flowables(blocks: list[dict], width: float, styles) -> list:
                 story += [Paragraph(_markup(" | ".join(row)), styles["body"]) for row in rows]
             continue
         if kind == "heading":
-            story.append(Paragraph(_markup(text), styles[f"h{min(max(block.get('level') or 1, 1), 6)}"]))
+            story.append(Paragraph(_block_markup(block),
+                                   styles[f"h{min(max(block.get('level') or 1, 1), 6)}"]))
         elif kind == "list_item":
             level = max(1, block.get("level") or 1)
             for deeper in [key for key in counters if key > level]:
@@ -114,18 +136,43 @@ def _flowables(blocks: list[dict], width: float, styles) -> list:
             bullet = f"{counters[level]}." if block.get("ordered") else "•"
             style = ParagraphStyle(f"li{level}", parent=styles["body"], leftIndent=18 * level,
                                    bulletIndent=18 * level - 14, spaceAfter=3)
-            story.append(Paragraph(_markup(text), style, bulletText=bullet))
+            story.append(Paragraph(_block_markup(block), style, bulletText=bullet))
         elif kind == "code":
             story.append(Paragraph(_markup(text).replace(" ", "&nbsp;"), styles["code"]))
+        elif kind == "rule":
+            story.append(HRFlowable(width="100%", thickness=0.6, color=colors.grey,
+                                    spaceBefore=4, spaceAfter=10))
         elif text.strip():
-            story.append(Paragraph(_markup(text), styles["body"]))
+            story.append(Paragraph(_block_markup(block), styles["body"]))
         index += 1
     return story
 
 
+def _build(target, story: list, title: str) -> None:
+    """One A4 document from a story. `target` is a file name or a binary file object."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.platypus import SimpleDocTemplate, Spacer
+
+    document = SimpleDocTemplate(target, pagesize=A4, leftMargin=MARGIN, rightMargin=MARGIN,
+                                 topMargin=MARGIN, bottomMargin=MARGIN, title=title,
+                                 author="PDFStruct", invariant=1)
+    document.build(story or [Spacer(1, 1)])  # an empty document is still one valid page
+
+
+def render_blocks(blocks: list[dict], title: str) -> tuple[bytes, list[str]]:
+    """PDF bytes for one unpaged block list (documents created from text) and its warnings."""
+    from reportlab.lib.pagesizes import A4
+
+    font = _fonts()
+    buffer = io.BytesIO()
+    _build(buffer, _flowables(blocks, A4[0] - 2 * MARGIN, _styles()), title)
+    texts = [text for block in blocks for text in (block.get("text", ""), *(block.get("cells") or []))]
+    return buffer.getvalue(), _missing_glyphs(font, texts)
+
+
 def _text_pdf(raw: dict, path: Path, title: str) -> list[str]:
     from reportlab.lib.pagesizes import A4
-    from reportlab.platypus import PageBreak, SimpleDocTemplate, Spacer
+    from reportlab.platypus import PageBreak
 
     font = _fonts()
     styles = _styles()
@@ -140,13 +187,8 @@ def _text_pdf(raw: dict, path: Path, title: str) -> list[str]:
         story += _flowables(blocks, width, styles)
         if position < len(pages) - 1:
             story.append(PageBreak())
-    if not story:
-        story.append(Spacer(1, 1))  # an empty document is still one valid page
     tmp = path.with_name(path.name + ".tmp")
-    document = SimpleDocTemplate(str(tmp), pagesize=A4, leftMargin=MARGIN, rightMargin=MARGIN,
-                                 topMargin=MARGIN, bottomMargin=MARGIN, title=title,
-                                 author="PDFStruct", invariant=1)
-    document.build(story)
+    _build(str(tmp), story, title)
     os.replace(tmp, path)
     return _missing_glyphs(font, (page.get("text") or "" for page in pages))
 
