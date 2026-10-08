@@ -6,7 +6,7 @@ import re
 import shutil
 import subprocess
 import zipfile
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import pytest
 
@@ -118,8 +118,8 @@ def test_plugin_and_extension_start_the_same_server():
     plugin = json.loads((PLUGIN / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]["pdfstruct"]["command"]
     extension = json.loads((BUNDLE / "manifest.json").read_text(encoding="utf-8"))["server"]["mcp_config"]["command"]
     home = "C:\\Users\\someone"
-    resolved_plugin = Path(plugin.replace("${USERPROFILE}", home))
-    resolved_extension = Path(extension.replace("${HOME}", home).replace("${/}", "\\"))
+    resolved_plugin = PureWindowsPath(plugin.replace("${USERPROFILE}", home))
+    resolved_extension = PureWindowsPath(extension.replace("${HOME}", home).replace("${/}", "\\"))
     assert resolved_plugin == resolved_extension
     assert resolved_plugin.parts[-3:] == STABLE_EXE
     # and the names both advertise are the names the server really has
