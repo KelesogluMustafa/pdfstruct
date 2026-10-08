@@ -355,11 +355,13 @@ def create(argv: list[str] | None = None, cwd: Path | None = None, stdin=None) -
     args = build_create_parser().parse_args(sys.argv[1:] if argv is None else argv)
     cwd = (cwd or Path.cwd()).resolve()
     out_dir = resolve_output(args.output, cwd, cwd)
+    most = 4 * creator.MAX_CONTENT_CHARS + 4  # bytes: UTF-8 or UTF-16 with a byte order mark
     source = None
     if args.content_file:
         source = (cwd / Path(args.content_file).expanduser()).resolve()
         try:
-            data = source.read_bytes()
+            with source.open("rb") as handle:
+                data = handle.read(most + 1)
         except OSError:
             print(f"ERROR: cannot read {source}")
             return 2
@@ -368,7 +370,11 @@ def create(argv: list[str] | None = None, cwd: Path | None = None, stdin=None) -
         if stream is None or stream.isatty():
             print("ERROR: no text. Use --content-file FILE or pipe the text in.\n\n" + CREATE_EXAMPLES)
             return 2
-        data = stream.buffer.read()
+        data = stream.buffer.read(most + 1)
+    if len(data) > most:  # never load a huge file just to refuse it
+        print(f"INVALID: the text is larger than {creator.MAX_CONTENT_CHARS} characters; "
+              "convert the file with pdfstruct instead")
+        return 2
     name = args.name or (source.stem if source else "")
     if not name:
         print("ERROR: --name is required when the text comes from standard input")

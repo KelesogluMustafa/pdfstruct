@@ -102,7 +102,8 @@ def test_default_format_is_docx_and_an_extension_in_the_name_is_not_doubled(tmp_
     "", "   ", "..", ".", ".hidden", "..\\evil", "../evil", "a/b", "a\\b", "C:\\Temp\\x", "C:x",
     "/etc/passwd", "\\\\server\\share\\x", "x:stream", "a\x00b", "a\nb", "a\tb", "a\x7fb", "a<b",
     'a"b', "a|b", "a?b", "a*b", "trailing.", "CON", "con", "PRN", "AUX", "NUL", "nul.docx", "COM1",
-    "com1.txt", "LPT1", "LPT9.report", "CONIN$", ".docx", "x" * 121, None, 7])
+    "com1.txt", "LPT1", "LPT9.report", "CONIN$", ".docx", "x" * 121, None, 7,
+    "COM\u00b9", "lpt\u00b2.txt", "a\x85b", "a\ud800b", "invoice\u202excod.exe", "a\u2066b"])
 def test_unsafe_names_are_rejected_and_nothing_is_written(tmp_path, name):
     result = make(tmp_path / "out", name)
     assert result.status == "invalid" and result.error_code == "invalid_name" and result.outputs == []
@@ -114,7 +115,8 @@ def test_bad_requests_are_rejected_before_any_work(tmp_path):
     cases = [(dict(content=""), "empty_content"), (dict(content=" \n\t "), "empty_content"),
              (dict(content=None), "empty_content"), (dict(formats=["exe"]), "unsupported_format"),
              (dict(formats=["docx", "xlsx"]), "unsupported_format"), (dict(formats=[]), "unsupported_format"),
-             (dict(content_type="html"), "invalid_content_type"),
+             (dict(content_type="html"), "invalid_content_type"), (dict(formats=7), "unsupported_format"),
+             (dict(content_type=["markdown"]), "invalid_content_type"),
              (dict(content="x" * (create.MAX_CONTENT_CHARS + 1)), "content_too_large")]
     for options, code in cases:
         result = make(out, **options)
@@ -124,6 +126,7 @@ def test_bad_requests_are_rejected_before_any_work(tmp_path):
     blocker = tmp_path / "file.txt"
     blocker.write_text("x", encoding="utf-8")
     assert make(blocker).error_code == "invalid_output_dir"
+    assert make(7).error_code == "invalid_output_dir" and make("bad\x00dir").error_code == "invalid_output_dir"
     assert make(tmp_path, content="x" * create.MAX_CONTENT_CHARS, formats=["txt"]).ok
 
 
@@ -147,7 +150,10 @@ def test_existing_files_are_kept_unless_overwrite_is_set(tmp_path):
                  "folder, or allow overwriting"}
     assert (tmp_path / "A.md").read_text(encoding="utf-8") == "first\n"
     assert not (tmp_path / "A.docx").exists()  # not even the format that was free
-    assert make(tmp_path, "a.MD", "second", ["md"]).status == ("conflict" if os.name == "nt" else "created")
+    same_file = (tmp_path / "a.md").exists()  # true where file names ignore case (Windows, macOS)
+    assert make(tmp_path, "a.MD", "second", ["md"]).status == ("conflict" if same_file else "created")
+    (tmp_path / "a.md").unlink(missing_ok=same_file)
+    (tmp_path / "A.md").write_text("first\n", encoding="utf-8")
     replaced = make(tmp_path, "A", "second", ["md"], overwrite=True)
     assert replaced.ok and (tmp_path / "A.md").read_text(encoding="utf-8") == "second\n"
     assert (tmp_path / "A.txt").read_text(encoding="utf-8") == "first\n"  # only what was asked for
@@ -156,14 +162,67 @@ def test_existing_files_are_kept_unless_overwrite_is_set(tmp_path):
 def test_a_file_that_appears_late_is_not_replaced(tmp_path, monkeypatch):
     target = tmp_path / "A.md"
     target.write_text("someone else", encoding="utf-8")
+    staged = create._stage(target, b"mine")
+    assert staged.parent == tmp_path and staged.name.startswith(".A.md.") and staged.suffix == ".tmp"
     with pytest.raises(FileExistsError):
-        create._publish(target, b"mine", overwrite=False)
+        create._publish(staged, target, overwrite=False)
     monkeypatch.setattr(os, "link", lambda *args: (_ for _ in ()).throw(OSError("no hard links")))
     with pytest.raises(FileExistsError):
-        create._publish(target, b"mine", overwrite=False)
-    create._publish(tmp_path / "B.md", b"mine", overwrite=False)  # the fallback still writes
+        create._publish(staged, target, overwrite=False)
+    assert create._publish(staged, tmp_path / "B.md", overwrite=False) is True  # the fallback still writes
     assert target.read_text(encoding="utf-8") == "someone else"
     assert sorted(p.name for p in tmp_path.iterdir()) == ["A.md", "B.md"]
+    again = create._stage(target, b"mine")
+    assert create._publish(again, target, overwrite=True) is False and target.read_bytes() == b"mine"
+
+
+def test_a_folder_with_the_target_name_is_never_replaced(tmp_path):
+    (tmp_path / "A.docx").mkdir()
+    for overwrite in (False, True):
+        result = make(tmp_path, "A", "text", ["md", "docx"], overwrite=overwrite)
+        assert (result.status, result.error_code, result.outputs) == ("conflict", "already_exists", [])
+        assert "a folder with that name exists" in result.error
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["A.docx"]
+
+
+def test_a_write_that_fails_part_way_is_taken_back(tmp_path, monkeypatch):
+    real, calls = create._publish, []
+
+    def second_one_is_locked(partial, target, overwrite):
+        calls.append(target.name)
+        if len(calls) == 2:
+            raise PermissionError(f"{target} is open in another program")
+        return real(partial, target, overwrite)
+    monkeypatch.setattr(create, "_publish", second_one_is_locked)
+    result = make(tmp_path, "A", "SECRET TEXT", ["md", "txt", "html"])
+    assert result.to_dict() == {"status": "failed", "outputs": [], "warnings": [], "error_code": "write_failed",
+                                "error": "could not write A.txt (PermissionError)"}
+    assert list(tmp_path.iterdir()) == []  # A.md was created and removed again; no temporary file
+
+    monkeypatch.setattr(create, "_publish", real)
+    assert make(tmp_path, "A", "old", ["md", "txt", "html"]).ok
+    calls.clear()
+    monkeypatch.setattr(create, "_publish", second_one_is_locked)
+    result = make(tmp_path, "A", "new", ["md", "txt", "html"], overwrite=True)
+    assert result.status == "failed" and result.outputs == [str(tmp_path / "A.md")]  # replaced, so reported
+    assert [(tmp_path / f"A.{ext}").read_text(encoding="utf-8").strip()[:3] for ext in ("md", "txt")] == ["new", "old"]
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["A.html", "A.md", "A.txt"]
+
+
+def test_a_full_disk_is_noticed_before_any_target_changes(tmp_path, monkeypatch):
+    assert make(tmp_path, "A", "old", ["md", "txt"]).ok
+    real, calls = create._stage, []
+
+    def disk_full(target, data):
+        calls.append(target.name)
+        if len(calls) == 2:
+            raise OSError(28, "No space left on device")
+        return real(target, data)
+    monkeypatch.setattr(create, "_stage", disk_full)
+    result = make(tmp_path, "A", "new", ["md", "txt"], overwrite=True)
+    assert (result.status, result.error_code, result.outputs) == ("failed", "write_failed", [])
+    assert [(tmp_path / f"A.{ext}").read_text(encoding="utf-8") for ext in ("md", "txt")] == ["old\n", "old\n"]
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["A.md", "A.txt"]
 
 
 def test_a_failing_writer_leaves_nothing_behind_and_does_not_quote_the_text(tmp_path, monkeypatch):
@@ -176,7 +235,7 @@ def test_a_failing_writer_leaves_nothing_behind_and_does_not_quote_the_text(tmp_
                                 "error": "html could not be created (RuntimeError)"}
     assert not (tmp_path / "out").exists()
 
-    def no_space(target, data, overwrite):
+    def no_space(partial, target, overwrite):
         raise OSError("disk full")
     monkeypatch.undo()
     monkeypatch.setattr(create, "_publish", no_space)
@@ -187,8 +246,8 @@ def test_a_failing_writer_leaves_nothing_behind_and_does_not_quote_the_text(tmp_
 
 def test_no_temporary_file_survives_a_failed_write(tmp_path, monkeypatch):
     monkeypatch.setattr(os, "replace", lambda *args: (_ for _ in ()).throw(PermissionError("locked")))
-    with pytest.raises(PermissionError):
-        create._publish(tmp_path / "A.md", b"data", overwrite=True)
+    result = make(tmp_path, "A", "data", ["md", "docx"], overwrite=True)
+    assert result.status == "failed" and result.error == "could not write A.md (PermissionError)"
     assert list(tmp_path.iterdir()) == []
 
 
@@ -205,6 +264,8 @@ def test_markdown_docx_has_real_word_structure(tmp_path):
     assert make(tmp_path).ok
     document = Document(str(tmp_path / "DOC.docx"))
     assert document.core_properties.title == "Audit: {{PROJECT_NAME}}"
+    page = document.sections[0]
+    assert (round(page.page_width.mm), round(page.page_height.mm)) == (210, 297)  # A4, like the PDF
     paragraphs = [(p.style.name, p.text) for p in document.paragraphs if p.text]
     assert paragraphs == [
         ("Heading 1", "Audit: {{PROJECT_NAME}}"),
@@ -240,6 +301,15 @@ def test_markdown_docx_has_real_word_structure(tmp_path):
     xml = document.element.xml
     assert xml.count("<w:hyperlink ") == 2 and "the docs" in xml and "<w:pBdr>" in xml  # link text, rule
 
+
+def test_a_very_long_first_heading_is_shortened_in_the_metadata_only(tmp_path):
+    heading = "Long title " * 60  # 660 characters; a .docx title property holds 255
+    result = make(tmp_path, "LONG", f"# {heading}\n\nBody.", ["docx", "pdf", "html"])
+    assert result.ok and result.warnings == []
+    document = Document(str(tmp_path / "LONG.docx"))
+    assert document.core_properties.title == heading.strip()[:200]
+    assert document.paragraphs[0].style.name == "Heading 1" and document.paragraphs[0].text == heading.strip()
+    assert "Body." in pdf_text(tmp_path / "LONG.pdf")  # a heading taller than half a page still lays out
 
 def test_plain_text_docx_keeps_paragraphs_line_breaks_and_literal_characters(tmp_path):
     assert make(tmp_path, content=TEXT, content_type="text").ok
@@ -362,14 +432,46 @@ def test_inline_markup_rules():
     assert styled("a **b *c* d** e") == [("a ", ""), ("b ", "b"), ("c", "bi"), (" d", "b"), (" e", "")]
     assert styled("***x*** __y__ _z_") == [("x", "bi"), (" ", ""), ("y", "b"), (" ", ""), ("z", "i")]
     assert styled("snake_case_name 2 * 3 * 4 a_b_c") == [("snake_case_name 2 * 3 * 4 a_b_c", "")]
-    assert styled(r"\*not\* `**code**` \{\{x\}\}") == [("*", ""), ("not", ""), ("*", ""), (" ", ""),
-                                                      ("**code**", "c"), (" ", ""), ("{", ""), ("{", ""),
-                                                      ("x", ""), ("}", ""), ("}", "")]
-    assert styled("{{A_B}} *{{_c_}}* {{**d**}}") == [("{{A_B}}", ""), (" ", ""), ("{{_c_}}", "i"),
-                                                    (" ", ""), ("{{**d**}}", "")]
-    assert styled("[t](ftp://x) [u](mailto:a@b.c)") == [("t", ""), (" (ftp://x)", ""), (" ", ""), ("u", "L")]
+    # neighbours with the same style are one piece: escapes and placeholders do not split the text
+    assert styled(r"\*not\* `**code**` \{\{x\}\}") == [("*not* ", ""), ("**code**", "c"), (" {{x}}", "")]
+    assert styled("{{A_B}} *{{_c_}}* {{**d**}}") == [("{{A_B}} ", ""), ("{{_c_}}", "i"), (" {{**d**}}", "")]
+    assert styled("[t](ftp://x) [u](mailto:a@b.c)") == [("t (ftp://x) ", ""), ("u", "L")]
+    assert styled("\\" * 5000) == [("\\" * 2500, "")]
     assert text_input.spans_text(text_input.inline_spans("<https://a.b> [x](https://c.d)")) == \
         "https://a.b x (https://c.d)"
+
+
+def test_malformed_markdown_costs_linear_time():
+    """Thousands of delimiters that never close used to take minutes (quadratic search)."""
+    import time
+    hostile = ["**a " * 50_000, "[" * 200_000, "{{a " * 50_000, "![a" * 60_000, "`a " * 60_000,
+               "__a " * 50_000, "*a " * 60_000, "[a](" * 50_000, '[a](b "' * 30_000, "`" * 200_000,
+               "# a" + " " * 200_000 + "b", "***" * 60_000 + "x", "<https://a" * 20_000]
+    started = time.perf_counter()
+    for text in hostile:
+        blocks = text_input.markdown_blocks(text_input.split_lines(text), rich=True)
+        assert blocks and (blocks[0]["kind"] == "code" or blocks[0]["text"].strip())  # the text is kept
+        assert create._IMAGE.search(text) is None
+    assert time.perf_counter() - started < 20  # about one second here; hours before
+
+
+@pytest.mark.parametrize("line, expected", [
+    ("# Title", (1, "Title")), ("###### six", (6, "six")), ("####### seven", None), ("#no space", None),
+    ("   ## indented ##  ", (2, "indented")), ("    # code", None), ("# a #b", (1, "a #b")),
+    ("# a#", (1, "a#")), ("# a ## b ##", (1, "a ## b")), ("#", (1, "")), ("#   ", (1, "")),
+    ("# #", (1, "#")), ("#  ##", (1, "##")), ("#\ttab", (1, "tab")), ("plain", None), ("", None)])
+def test_headings_are_read_as_before(line, expected):
+    assert text_input.atx_heading(line) == expected
+
+
+def test_a_table_wider_than_word_allows_stays_readable_text(tmp_path):
+    wide = "|" + "h|" * 64 + "\n|" + "-|" * 64 + "\n|" + "c|" * 64 + "\n"
+    fits = "|" + "h|" * 63 + "\n|" + "-|" * 63 + "\n|" + "c|" * 63 + "\n"
+    assert make(tmp_path, "WIDE", wide).ok and make(tmp_path, "FITS", fits).ok
+    document = Document(str(tmp_path / "WIDE.docx"))
+    assert not document.tables and [p.text for p in document.paragraphs] == [" | ".join("h" * 64), " | ".join("c" * 64)]
+    (table,) = Document(str(tmp_path / "FITS.docx")).tables
+    assert len(table.columns) == 63 and table.cell(1, 62).text == "c"
 
 
 def test_only_a_header_with_a_matching_rule_line_is_a_table():
@@ -388,3 +490,28 @@ def test_file_inputs_are_read_exactly_as_before():
     assert not any(block["kind"] == "table_row" for block in plain)
     assert "| Field | Value |\n|-------|-------|" in "\n".join(b["text"] for b in plain)  # literal
     assert plain[1]["text"].startswith("Intro with **bold**, *italic*, `inline code`") and "\n" in plain[1]["text"]
+
+
+# ---------------------------------------------------------------- very large and odd input
+
+def test_more_blocks_than_the_writers_handle_quickly_are_refused(tmp_path):
+    lines = "- item\n" * (create.MAX_BLOCKS + 1)
+    result = make(tmp_path / "out", content=lines, formats=["docx", "pdf"])
+    assert (result.status, result.error_code) == ("invalid", "content_too_large")
+    assert "20001 paragraphs, list items and table rows" in result.error and not (tmp_path / "out").exists()
+    assert make(tmp_path, content="- item\n" * 300, formats=["docx", "pdf"]).ok
+
+
+def test_oversized_blocks_are_written_plainly_instead_of_slowly(tmp_path):
+    styled = "**b** n " * (text_input.MAX_SPANS + 5)       # one paragraph, thousands of bold pieces
+    long_word_soup = "wort " * 5000                          # one paragraph of 25,000 characters
+    tall_cell = "| a | b |\n|---|---|\n| " + "zelle " * 1500 + "| x |\n"
+    result = make(tmp_path, content=f"{styled}\n\n{long_word_soup}\n\n{tall_cell}", formats=["docx", "pdf", "html"])
+    assert result.ok and [w.split(":")[0] for w in result.warnings] == [
+        "inline_styles_dropped", "pdf_long_block_split", "pdf_tables_as_text"]
+    document = Document(str(tmp_path / "DOC.docx"))
+    assert len(document.paragraphs[0].runs) == 1 and document.paragraphs[0].text.startswith("b n b n")
+    assert len(document.tables) == 1  # only the PDF gave the table up
+    text = " ".join(pdf_text(tmp_path / "DOC.pdf").split())
+    assert text.count("wort") == 5000 and text.count("zelle") == 1500 and "a | b" in text
+    assert "<strong>" not in (tmp_path / "DOC.html").read_text(encoding="utf-8")

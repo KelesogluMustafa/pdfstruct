@@ -69,6 +69,15 @@ def test_cli_reads_standard_input_as_utf8(tmp_path):
     assert "--content-file" in help_text and "standard input" in help_text
 
 
+def test_cli_refuses_an_oversized_file_without_loading_it(tmp_path, capsys, monkeypatch):
+    from pdfstruct import create
+    monkeypatch.setattr(create, "MAX_CONTENT_CHARS", 10)
+    (tmp_path / "big.md").write_bytes(b"x" * 1000)
+    assert cli.create(["--content-file", "big.md", "--name", "BIG"], cwd=tmp_path) == 2
+    assert "larger than 10 characters" in capsys.readouterr().out
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["big.md"]
+
+
 def test_cli_without_text_explains_itself(tmp_path, capsys):
     class Terminal(io.StringIO):
         def isatty(self):

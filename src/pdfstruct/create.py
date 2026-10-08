@@ -5,8 +5,9 @@
 
 The entry point shared by the command line (pdfstruct-create), the window and the MCP
 tool. It needs no source file, no OCR, no network and no LLM: the text is parsed into
-the block model of pdfstruct.inputs and every format is rendered in memory. A file
-only appears on disk complete; nothing else is written, not even temporarily.
+the block model of pdfstruct.inputs and every format is rendered in memory. No
+source file is written. Every file is first written under a temporary name next to its
+target and only then moved into place, so a document never appears half written.
 
 Results never carry the text: only a status, the paths that were created and short
 warnings.
@@ -27,12 +28,16 @@ FORMATS = {"docx": ".docx", "pdf": ".pdf", "html": ".html", "md": ".md", "txt": 
 CONTENT_TYPES = ("markdown", "text")
 DEFAULT_FORMATS = ("docx",)
 MAX_CONTENT_CHARS = 500_000  # far above what one conversation turn produces; larger: use a file
+MAX_BLOCKS = 20_000  # paragraphs, headings, list items, table rows; a 300-page book has fewer
 MAX_NAME_CHARS = 120
+MAX_TITLE_CHARS = 200  # document title in the file's metadata: the first heading, shortened
 NAME_EXTENSIONS = (*FORMATS.values(), ".htm", ".markdown")
-_FORBIDDEN_IN_NAME = re.compile(r'[<>:"/\\|?*\x00-\x1f\x7f]')
+# Path syntax, control characters, lone surrogates and the characters that reorder text
+# on screen (they can make "exe.docx" look like something else).
+_FORBIDDEN_IN_NAME = re.compile('[<>:"/\\\\|?*\x00-\x1f\x7f-\x9f\ud800-\udfff\u202a-\u202e\u2066-\u2069]')
 _RESERVED_NAMES = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$",
-                   *(f"{port}{number}" for port in ("COM", "LPT") for number in "0123456789")}
-_IMAGE = re.compile(r"!\[[^\]]*\]\(")
+                   *(f"{port}{number}" for port in ("COM", "LPT") for number in "0123456789\u00b9\u00b2\u00b3")}
+_IMAGE = re.compile(r"!\[[^\]\n]{0,200}\]\(")  # bounded: only decides about a warning
 
 
 @dataclass
@@ -82,7 +87,9 @@ def normalize_formats(formats) -> list[str]:
     """Lower-case and without repeats, in the order asked for. Raises CreateError."""
     if isinstance(formats, str):
         formats = formats.replace(",", " ").split()
-    wanted = [str(item).strip().lower().lstrip(".") for item in formats or [] if str(item).strip()]
+    if not isinstance(formats, (list, tuple)):
+        raise CreateError("unsupported_format", "formats must be a list of format names")
+    wanted = [str(item).strip().lower().lstrip(".") for item in formats if str(item).strip()]
     unknown = [item for item in wanted if item not in FORMATS]
     if unknown:
         raise CreateError("unsupported_format", f"unsupported format: {', '.join(unknown)} "
@@ -131,9 +138,11 @@ def _checked(request: CreateRequest) -> tuple[str, list[str], str, Path, list[st
                           f"{MAX_CONTENT_CHARS}. Save it as a file and convert that file instead")
     content = export.clean("\n".join(text_input.split_lines(request.content.lstrip("﻿"))))
     try:
+        if request.output_dir and re.search(r"[\x00-\x1f]", str(request.output_dir)):
+            raise ValueError("control character in the folder path")
         out_dir = (Path(request.output_dir).expanduser().resolve() if request.output_dir
                    else default_output_dir())
-    except (OSError, ValueError, RuntimeError):
+    except (OSError, ValueError, RuntimeError, TypeError):
         raise CreateError("invalid_output_dir", "output_dir is not a usable folder path") from None
     if out_dir.exists() and not out_dir.is_dir():
         raise CreateError("invalid_output_dir", "output_dir is a file, not a folder")
@@ -186,40 +195,57 @@ def _plain_text(blocks: list[dict]) -> str:
     return "\n".join(out)
 
 
-def _publish(target: Path, data: bytes, overwrite: bool) -> None:
-    """Write `target` completely or not at all. Raises FileExistsError instead of replacing
-    a file when `overwrite` is off, also when the file appeared after the first check."""
+def _stage(target: Path, data: bytes) -> Path:
+    """Write `data` next to `target` under a temporary name. The caller removes that file."""
     partial = target.with_name(f".{target.name}.{secrets.token_hex(4)}.tmp")
     try:
         with partial.open("xb") as out:
             out.write(data)
-        if overwrite:
-            os.replace(partial, target)
-            return
-        try:
-            os.link(partial, target)  # atomic, and fails when the target exists
-        except FileExistsError:
-            raise
-        except OSError:               # a file system without hard links
-            if target.exists():
-                raise FileExistsError(str(target)) from None
-            os.replace(partial, target)
-    finally:
+    except BaseException:
         partial.unlink(missing_ok=True)
+        raise
+    return partial
+
+
+def _publish(partial: Path, target: Path, overwrite: bool) -> bool:
+    """Move a staged file into place -> True when `target` did not exist before.
+
+    Raises FileExistsError instead of replacing a file when `overwrite` is off, also when
+    the file appeared after the first check."""
+    if overwrite:
+        existed = target.exists()
+        os.replace(partial, target)
+        return not existed
+    try:
+        os.link(partial, target)  # atomic, and fails when the target exists
+    except FileExistsError:
+        raise
+    except OSError:               # a file system without hard links
+        if target.exists():
+            raise FileExistsError(str(target)) from None
+        os.replace(partial, target)
+    return True
 
 
 def create_document(request: CreateRequest) -> CreateResult:
     """Write `request.content` as one file per format, named exactly <name>.<format>.
 
-    Every format is rendered before the first file is written, so a failure leaves
-    nothing behind. Existing files are reported as a conflict and stay untouched unless
-    `overwrite` is set. Never raises for a bad request: see CreateResult.status."""
+    All or nothing: every format is rendered, then every file is written under a
+    temporary name, and only then are the files moved into place. If that last step fails
+    part-way, the files this call had created are removed again; a file that `overwrite`
+    had already replaced stays and is listed in `outputs`. Existing files are reported as
+    a conflict and stay untouched unless `overwrite` is set. Never raises: see
+    CreateResult.status."""
     try:
         stem, formats, content, out_dir, notes = _checked(request)
     except CreateError as exc:
         return CreateResult("invalid", error_code=exc.code, error=short(exc))
 
     targets = {fmt: out_dir / (stem + FORMATS[fmt]) for fmt in formats}
+    folders = [target.name for target in targets.values() if target.is_dir()]
+    if folders:  # never replaced, whatever `overwrite` says
+        return CreateResult("conflict", error_code="already_exists", error=short(
+            f"a folder with that name exists, nothing was written: {', '.join(folders)}"))
     existing = [target.name for target in targets.values() if target.exists()]
     if existing and not request.overwrite:
         return CreateResult("conflict", error_code="already_exists", error=short(
@@ -236,8 +262,16 @@ def create_document(request: CreateRequest) -> CreateResult:
                 notes.append("images_not_embedded: pictures are not loaded; their alt text is kept")
         else:
             blocks = text_input.text_blocks(lines)
+        if any(block.get("styles_dropped") for block in blocks):
+            notes.append(f"inline_styles_dropped: a block with more than {text_input.MAX_SPANS} "
+                         "styled pieces is written as plain text")
+        if len(blocks) > MAX_BLOCKS:  # the writers need seconds per ten thousand blocks
+            return CreateResult("invalid", error_code="content_too_large", error=(
+                f"content has {len(blocks)} paragraphs, list items and table rows; the limit is "
+                f"{MAX_BLOCKS}. Save it as a file and convert that file instead"))
         first = blocks[0] if blocks else {}
         title = first["text"] if first.get("kind") == "heading" and first.get("level") == 1 else stem
+        title = " ".join(title.split())[:MAX_TITLE_CHARS]
         for fmt in formats:
             rendered[fmt], produced = _render(fmt, blocks, content, request.content_type, title)
             notes += produced
@@ -246,16 +280,28 @@ def create_document(request: CreateRequest) -> CreateResult:
                             error=f"{fmt} could not be created ({type(exc).__name__})")
 
     result = CreateResult("created", warnings=list(dict.fromkeys(short(n) for n in notes))[:MAX_WARNINGS])
+    staged: dict[Path, Path] = {}  # target -> its complete file under a temporary name
+    created: list[Path] = []       # targets that did not exist before this call
     target = out_dir
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
-        for fmt, target in targets.items():
-            _publish(target, rendered[fmt], bool(request.overwrite))
+        for fmt, target in targets.items():   # a full disk or a read-only folder shows up
+            staged[target] = _stage(target, rendered[fmt])  # here, before any target changes
+        for target, partial in staged.items():
+            if _publish(partial, target, bool(request.overwrite)):
+                created.append(target)
             result.outputs.append(str(target))
-    except FileExistsError:
-        result.status, result.error_code = "conflict", "already_exists"
-        result.error = short(f"{target.name} already exists and was not replaced")
-    except OSError as exc:
-        result.status, result.error_code = "failed", "write_failed"
-        result.error = short(f"could not write to {out_dir} ({type(exc).__name__})")
+    except Exception as exc:
+        for path in created:  # all or nothing: take back what this call added
+            path.unlink(missing_ok=True)
+        result.outputs = [path for path in result.outputs if Path(path) not in created]
+        if isinstance(exc, FileExistsError):
+            result.status, result.error_code = "conflict", "already_exists"
+            result.error = short(f"{target.name} already exists and was not replaced")
+        else:  # the message may hold a path of the user; the type is enough
+            result.status, result.error_code = "failed", "write_failed"
+            result.error = short(f"could not write {target.name} ({type(exc).__name__})")
+    finally:
+        for partial in staged.values():
+            partial.unlink(missing_ok=True)
     return result

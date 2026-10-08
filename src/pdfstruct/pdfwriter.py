@@ -22,6 +22,9 @@ MARGIN = 56.7          # 2 cm
 IMAGE_MARGIN = 18.0
 MAX_IMAGE_SIDE = 3508  # A4 at 300 dpi; larger pictures are downscaled inside the PDF
 MAX_TABLE_COLUMNS = 8
+MAX_KEPT_HEADING_CHARS = 300  # a longer heading is not tied to the block that follows it
+MAX_BLOCK_CHARS = 20_000  # created documents: a longer block is laid out in pieces
+MAX_TABLE_ROWS = 400      # created documents: a longer table is laid out in pieces
 
 
 def _fonts():
@@ -126,8 +129,12 @@ def _flowables(blocks: list[dict], width: float, styles) -> list:
                 story += [Paragraph(_markup(" | ".join(row)), styles["body"]) for row in rows]
             continue
         if kind == "heading":
-            story.append(Paragraph(_block_markup(block),
-                                   styles[f"h{min(max(block.get('level') or 1, 1), 6)}"]))
+            style = styles[f"h{min(max(block.get('level') or 1, 1), 6)}"]
+            if len(text) > MAX_KEPT_HEADING_CHARS:
+                # a heading about a page tall that must stay with its successor makes
+                # reportlab look for a page it fits on forever
+                style = ParagraphStyle(style.name + "-long", parent=style, keepWithNext=0)
+            story.append(Paragraph(_block_markup(block), style))
         elif kind == "list_item":
             level = max(1, block.get("level") or 1)
             for deeper in [key for key in counters if key > level]:
@@ -159,15 +166,58 @@ def _build(target, story: list, title: str) -> None:
     document.build(story or [Spacer(1, 1)])  # an empty document is still one valid page
 
 
+def _in_pieces(blocks: list[dict]) -> tuple[list[dict], bool]:
+    """Blocks reportlab can lay out in reasonable time -> (blocks, True when one was cut).
+
+    Its paragraph and table layout need quadratic time for one very long paragraph or one
+    table with thousands of rows. Such a block is cut at a space or line end into pieces
+    that follow each other (their inline styles are dropped), and a long table continues
+    as several tables. Nothing a person writes by hand comes near these sizes."""
+    out, cut, table, rows = [], False, None, 0
+    for block in blocks:
+        text = block.get("text", "")
+        if block.get("kind") == "table_row":
+            rows = rows + 1 if block.get("table") == table else 0
+            table = block.get("table")
+            out.append({**block, "table": (table, rows // MAX_TABLE_ROWS)})
+        elif len(text) > MAX_BLOCK_CHARS:
+            cut, start, kind = True, 0, block.get("kind")
+            plain = {key: value for key, value in block.items() if key != "spans"}
+            while start < len(text):
+                end = min(start + MAX_BLOCK_CHARS, len(text))
+                if end < len(text):
+                    space = max(text.rfind("\n", start, end), text.rfind(" ", start, end))
+                    end = space + 1 if space > start else end
+                out.append({**plain, "text": text[start:end], "kind": kind})
+                kind = kind if kind == "code" else "paragraph"  # one bullet, one heading
+                start = end
+        else:
+            out.append(block)
+    return out, cut
+
+
 def render_blocks(blocks: list[dict], title: str) -> tuple[bytes, list[str]]:
     """PDF bytes for one unpaged block list (documents created from text) and its warnings."""
     from reportlab.lib.pagesizes import A4
 
+    from reportlab.platypus.doctemplate import LayoutError
+
     font = _fonts()
     buffer = io.BytesIO()
-    _build(buffer, _flowables(blocks, A4[0] - 2 * MARGIN, _styles()), title)
+    pieces, cut = _in_pieces(blocks)
+    notes = [f"pdf_long_block_split: a block longer than {MAX_BLOCK_CHARS} characters was laid "
+             "out in pieces, without bold, italic or links"] if cut else []
+    try:
+        _build(buffer, _flowables(pieces, A4[0] - 2 * MARGIN, _styles()), title)
+    except LayoutError:  # a table row taller than a page cannot be split: keep the cells as text
+        pieces = [{"text": block.get("text", ""), "kind": "paragraph"}
+                  if block.get("kind") == "table_row" else block for block in pieces]
+        buffer = io.BytesIO()
+        _build(buffer, _flowables(pieces, A4[0] - 2 * MARGIN, _styles()), title)
+        notes.append("pdf_tables_as_text: a table row is taller than a page, so the tables are "
+                     "written as text rows in the PDF")
     texts = [text for block in blocks for text in (block.get("text", ""), *(block.get("cells") or []))]
-    return buffer.getvalue(), _missing_glyphs(font, texts)
+    return buffer.getvalue(), notes + _missing_glyphs(font, texts)
 
 
 def _text_pdf(raw: dict, path: Path, title: str) -> list[str]:

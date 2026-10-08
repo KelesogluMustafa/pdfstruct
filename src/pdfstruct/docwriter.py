@@ -18,6 +18,7 @@ CODE_FONT = "Consolas"
 CODE_STYLE = "Code"
 LINK_COLOR = "0563C1"
 ZIP_TIME = (1980, 1, 1, 0, 0, 0)  # fixed, so the same text gives the same .docx bytes
+MAX_TABLE_COLUMNS = 63            # Word's limit; a wider table is written as text rows
 
 
 def _spans(block: dict) -> list[dict]:
@@ -102,16 +103,31 @@ def docx_bytes(blocks: list[dict], title: str) -> bytes:
     """A macro-free .docx: Word heading styles, real lists, real tables, a `Code` style."""
     from docx import Document
     from docx.enum.style import WD_STYLE_TYPE
-    from docx.shared import Pt
+    from docx.shared import Mm, Pt
+    from docx.table import _Cell
 
     document = Document()
-    document.core_properties.title = clean(title)
+    document.core_properties.title = clean(title)[:255]  # the format allows no more
     document.core_properties.author = "PDFStruct"
+    for section in document.sections:  # A4 like the PDF; the library's template is US Letter
+        section.page_width, section.page_height = Mm(210), Mm(297)
     code = document.styles.add_style(CODE_STYLE, WD_STYLE_TYPE.PARAGRAPH)
     code.base_style = document.styles["Normal"]
     _mono(code.font)
     code.font.size = Pt(9.5)
     code.paragraph_format.left_indent = Pt(12)
+
+    style_ids: dict[str, str] = {}
+
+    def paragraph_in(style: str):
+        """A new paragraph in a named style. The style is looked up once: python-docx walks
+        the whole style sheet on every `add_paragraph(style=...)`, which adds up to minutes
+        for a document with tens of thousands of headings or list items."""
+        if style not in style_ids:
+            style_ids[style] = document.styles[style].style_id
+        paragraph = document.add_paragraph()
+        paragraph._p.style = style_ids[style]
+        return paragraph
 
     index, open_list, list_id = 0, None, None
     while index < len(blocks):
@@ -120,22 +136,27 @@ def docx_bytes(blocks: list[dict], title: str) -> bytes:
         if kind != "list_item":
             open_list = None
         if kind == "table_row":
+            start = index
             rows, index = _tables(blocks, index, "cell_spans")
+            if len(rows[0]) > MAX_TABLE_COLUMNS:  # Word cannot open it: keep every cell as text
+                for block in blocks[start:index]:
+                    document.add_paragraph(clean(block.get("text", "")))
+                continue
             table = document.add_table(rows=len(rows), cols=len(rows[0]))
             table.style = "Table Grid"
-            for r, row in enumerate(rows):
-                for c, cell in enumerate(row):
-                    _runs(table.cell(r, c).paragraphs[0], cell, bold=r == 0)  # first row: header
+            # the XML rows directly: table.cell(r, c) rebuilds its cell list on every call
+            for r, (row, xml_row) in enumerate(zip(rows, table._tbl.tr_lst)):
+                for cell, xml_cell in zip(row, xml_row.tc_lst):
+                    _runs(_Cell(xml_cell, table).paragraphs[0], cell, bold=r == 0)  # first row: header
             document.add_paragraph()
             continue
         if kind == "heading":
-            _runs(document.add_heading("", level=min(max(block.get("level") or 1, 1), 9)),
-                  _spans(block))
+            _runs(paragraph_in(f"Heading {min(max(block.get('level') or 1, 1), 9)}"), _spans(block))
         elif kind == "list_item":
             ordered = bool(block.get("ordered"))
             level = min(max(block.get("level") or 1, 1), 3)
             style = "List Number" if ordered else "List Bullet"
-            paragraph = document.add_paragraph(style=style if level == 1 else f"{style} {level}")
+            paragraph = paragraph_in(style if level == 1 else f"{style} {level}")
             _runs(paragraph, _spans(block))
             if level == 1:
                 if ordered and open_list != "ordered":
@@ -146,7 +167,7 @@ def docx_bytes(blocks: list[dict], title: str) -> bytes:
                     numbering.get_or_add_ilvl().val = 0
                     numbering.get_or_add_numId().val = list_id
         elif kind == "code":
-            _runs(document.add_paragraph(style=CODE_STYLE), [{"text": block.get("text", "")}])
+            _runs(paragraph_in(CODE_STYLE), [{"text": block.get("text", "")}])
         elif kind == "rule":
             _rule(document.add_paragraph())
         elif block.get("text", "").strip():

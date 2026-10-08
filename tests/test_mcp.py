@@ -246,14 +246,20 @@ def test_create_document_over_real_stdio_keeps_stdout_pure_and_logs_no_text(tmp_
         assert conflict["status"] == "conflict" and "GEHEIM" not in text and len(text) < 400
         text, invalid = call(5, name="a/b", content=DRAFT, output_dir=str(tmp_path))
         assert invalid["error_code"] == "invalid_name" and "GEHEIM" not in text
-        bad = server.request(6, "tools/call", {"name": "create_document", "arguments": {
-            "name": "X", "content": DRAFT, "content_type": "rtf", "output_dir": str(tmp_path)}})
-        assert bad.get("isError") and "GEHEIM" not in json.dumps(bad)  # schema error, still no text
+        for number, arguments in ((6, {"name": "X", "content": DRAFT, "content_type": "rtf"}),
+                                  (8, {"content": DRAFT}),                 # no name
+                                  (9, {"name": "X", "content": [DRAFT]}),  # text in the wrong shape
+                                  (10, {"name": "X", "content": DRAFT, "formats": "docx", "overwrite": "maybe"})):
+            bad = server.request(number, "tools/call", {"name": "create_document", "arguments": arguments})
+            answer = json.dumps(bad, ensure_ascii=False)
+            assert bad.get("isError"), arguments.keys()
+            assert "GEHEIM" not in answer and "Fülltext" not in answer and "Vorlage" not in answer
+            assert len(answer) < 700  # the field and the reason, not the rejected input
         formats = server.request(7, "tools/call", {"name": "supported_formats", "arguments": {}})
         assert "pdf" in json.loads(formats["content"][0]["text"])["outputs"]  # the others still answer
     finally:
         server.close()
-    assert server.stdout_lines >= 7  # every line on stdout parsed as a JSON-RPC message
+    assert server.stdout_lines >= 10  # every line on stdout parsed as a JSON-RPC message
     assert b"GEHEIM" not in server.stderr and "Fülltext".encode() not in server.stderr
     assert sorted(p.name for p in tmp_path.iterdir()) == ["VORLAGE.docx", "VORLAGE.html"]
     from docx import Document

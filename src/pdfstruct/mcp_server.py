@@ -326,7 +326,23 @@ def build_server():
                          overwrite: bool = False) -> str:
         return _dump(create_document(name, content, formats, output_dir, content_type, overwrite))
 
+    _hide_arguments_in_errors(server, "create_document")
     return server
+
+
+def _hide_arguments_in_errors(server, tool_name: str) -> None:
+    """A call that fails argument validation is answered with the field and the reason only.
+
+    By default the answer quotes the rejected input, which for this tool is the text."""
+    from pydantic import ConfigDict
+
+    try:
+        metadata = server._tool_manager.get_tool(tool_name).fn_metadata
+        arguments = metadata.arg_model
+        metadata.arg_model = type(arguments.__name__, (arguments,),
+                                  {"model_config": ConfigDict(hide_input_in_errors=True)})
+    except (AttributeError, KeyError, TypeError):
+        pass  # the SDK keeps this elsewhere now: the server still starts, tests/test_mcp.py fails
 
 
 def main() -> int:

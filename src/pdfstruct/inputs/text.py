@@ -7,27 +7,21 @@ from pathlib import Path
 from . import table_text, unpaged_page
 
 _LIST_ITEM = re.compile(r"^(\s*)([-*+]|\d{1,9}[.)])\s+(.*)$")
-_ATX = re.compile(r"^ {0,3}(#{1,6})(?:\s+(.*?))?(?:\s+#+)?\s*$")
 _FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 _RULE = re.compile(r"^ {0,3}([-*_])(?:\s*\1){2,}\s*$")
 _SETEXT = re.compile(r"^ {0,3}(=+|-+)\s*$")
 _TABLE_RULE = re.compile(r"^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$")
 _CELL_SPLIT = re.compile(r"(?<!\\)\|")
 LINK_SCHEMES = ("http://", "https://", "mailto:")
-# {{PLACEHOLDER}} comes first: template placeholders are never read as markup.
-_INLINE = re.compile(r"""
-    (?P<placeholder>\{\{.*?\}\})
-  | \\(?P<escaped>[\\`*_{}\[\]()\#+\-.!|<>~])
-  | (?P<tick>`+)(?P<code>.+?)(?P=tick)(?!`)
-  | !\[(?P<alt>[^\]]*)\]\((?P<src>[^()\s]*)(?:\s+"[^"]*")?\)
-  | \[(?P<label>[^\]]+)\]\((?P<href>[^()\s]+)(?:\s+"[^"]*")?\)
-  | <(?P<auto>(?:https?://|mailto:)[^<>\s]+)>
-  | \*\*\*(?=\S)(?P<bold_italic>.+?)(?<=\S)\*\*\*
-  | \*\*(?=\S)(?P<bold>.+?)(?<=\S)\*\*
-  | (?<!\w)__(?=\S)(?P<bold_u>.+?)(?<=\S)__(?!\w)
-  | \*(?=\S)(?P<italic>[^*]+?)(?<=\S)\*
-  | (?<!\w)_(?=\S)(?P<italic_u>[^_]+?)(?<=\S)_(?!\w)
-""", re.VERBOSE)
+_SPECIAL = re.compile(r"[\\`*_\[!<{]")  # every inline construct starts with one of these
+_ESCAPABLE = frozenset("\\`*_{}[]()#+-.!|<>~")
+_LINK_TAIL = re.compile(r'\]\((?P<target>[^()\s]+)(?:\s+"[^"]{0,500}")?\)')
+_IMAGE_TAIL = re.compile(r'\]\((?P<target>[^()\s]*)(?:\s+"[^"]{0,500}")?\)')
+_AUTOLINK = re.compile(r"<((?:https?://|mailto:)[^<>\s]+)>")
+_WORD = re.compile(r"\w")
+MAX_TICKS = 16  # longest backtick run read as a code delimiter
+MAX_SPANS = 2000  # a block with more styled pieces than this is kept as plain text
+_STYLE_KEYS = ("bold", "italic", "code", "href")
 
 
 def decode(data: bytes) -> tuple[str, list[str]]:
@@ -75,50 +69,177 @@ def read_txt(path: Path) -> dict:
             "coordinate_system": None}
 
 
+def atx_heading(line: str) -> tuple[int, str] | None:
+    """`## Title ##` -> (2, "Title"); None when the line is no heading. The text may be empty.
+
+    Written out instead of one regular expression: that one needed quadratic time on a
+    heading with a long run of spaces."""
+    body = line.lstrip(" ")
+    if len(line) - len(body) > 3:
+        return None
+    level = len(body) - len(body.lstrip("#"))
+    rest = body[level:]
+    if not 1 <= level <= 6 or (rest and not rest[0].isspace()):
+        return None
+    text = rest.strip()
+    opening = text.rstrip("#")
+    if opening != text:  # closing hashes count only after whitespace, and never alone
+        text = opening.rstrip() if opening and opening[-1].isspace() else text
+    return level, text
+
+
 def inline_spans(text: str, bold: bool = False, italic: bool = False,
                  href: str | None = None) -> list[dict]:
     """Inline Markdown as styled pieces: {"text", "bold", "italic", "code", "href"}.
 
     Bold, italic, code spans, links and backslash escapes are read. Embedded HTML stays
     literal text, an image becomes its alt text, and only http, https and mailto links
-    keep their target; any other target is written out as text.
+    keep their target; any other target is written out as text. A {{PLACEHOLDER}} is
+    template text and is never read as markup.
+
+    One pass from left to right. A delimiter whose closing partner was searched for once
+    and not found is not searched for again, so malformed text (thousands of unclosed
+    `**` or `[`) costs linear time, not quadratic.
     """
     spans: list[dict] = []
+    size = len(text)
 
     def add(piece: str, **style) -> None:
         if piece:
             spans.append({"text": piece, "bold": bold, "italic": italic, "code": False,
                           "href": href, **style})
 
-    position = 0
-    for match in _INLINE.finditer(text):
-        add(text[position:match.start()])
-        position = match.end()
-        found = match.groupdict()
-        if found["placeholder"] is not None:
-            add(found["placeholder"])
-        elif found["escaped"] is not None:
-            add(found["escaped"])
-        elif found["code"] is not None:
-            add(found["code"].strip() or found["code"], code=True)
-        elif found["src"] is not None:
-            add(found["alt"] or found["src"])
-        elif found["href"] is not None:
-            if found["href"].lower().startswith(LINK_SCHEMES):
-                spans += inline_spans(found["label"], bold, italic, found["href"])
-            else:
-                spans += inline_spans(found["label"], bold, italic, href)
-                add(f" ({found['href']})")
-        elif found["auto"] is not None:
-            add(found["auto"], href=found["auto"])
-        elif found["bold_italic"] is not None:
-            spans += inline_spans(found["bold_italic"], True, True, href)
-        elif found["bold"] is not None or found["bold_u"] is not None:
-            spans += inline_spans(found["bold"] or found["bold_u"], True, italic, href)
+    def nested(piece: str, **style) -> None:
+        spans.extend(inline_spans(piece, style.get("bold", bold), style.get("italic", italic),
+                                  style.get("href", href)))
+
+    dead: dict[str, int] = {}     # delimiter -> no closing partner starts before this index
+    line_end = -1                 # end of the line the scanner is in (most spans stay in one line)
+    bracket_from, bracket_at = 0, -2  # cache: first "]" at or after bracket_from
+    tails: dict[tuple, re.Match | None] = {}
+
+    def word(index: int) -> bool:
+        return 0 <= index < size and _WORD.match(text, index) is not None
+
+    def closer(mark: str, start: int, limit: int, tight: bool = True, after_word: bool = True,
+               no_tick: bool = False) -> int:
+        """First index >= start where `mark` closes a span, or -1 (and remember that)."""
+        if start <= dead.get(mark, -1):
+            return -1
+        index = text.find(mark, start, limit)
+        while index != -1:
+            if not ((tight and text[index - 1].isspace())
+                    or (not after_word and word(index + len(mark)))
+                    or (no_tick and text.startswith("`", index + len(mark)))):
+                return index
+            index = text.find(mark, index + 1, limit)
+        dead[mark] = limit
+        return -1
+
+    def bracket(start: int) -> int:
+        nonlocal bracket_from, bracket_at
+        if not bracket_from <= start <= bracket_at:
+            bracket_from, bracket_at = start, text.find("]", start)
+            if bracket_at == -1:
+                bracket_at = size  # none left: every later question has the same answer
+        return -1 if bracket_at == size else bracket_at
+
+    def tail(pattern: re.Pattern, index: int) -> re.Match | None:
+        if (pattern, index) not in tails:
+            tails[pattern, index] = pattern.match(text, index)
+        return tails[pattern, index]
+
+    done = position = 0  # text before `done` is already in spans
+    while True:
+        special = _SPECIAL.search(text, position)
+        if special is None:
+            break
+        at = special.start()
+        char = text[at]
+        if at > line_end:
+            line_end = text.find("\n", at)
+            line_end = size if line_end == -1 else line_end
+        tight = at + 1 < size and not text[at + 1].isspace()  # something follows the delimiter
+        end = None  # set to the index after the construct that starts at `at`
+        emit = None
+        if char == "{":
+            close = closer("}}", at + 2, line_end, tight=False) if text.startswith("{{", at) else -1
+            if close != -1:
+                end, emit = close + 2, (add, text[at:close + 2], {})
+        elif char == "\\":
+            if at + 1 < size and text[at + 1] in _ESCAPABLE:
+                end, emit = at + 2, (add, text[at + 1], {})
+        elif char == "`":
+            run = 1
+            while run < MAX_TICKS and text.startswith("`", at + run):
+                run += 1
+            for length in range(run, 0, -1):
+                close = closer("`" * length, at + length + 1, line_end, tight=False, no_tick=True)
+                if close != -1:
+                    code = text[at + length:close]
+                    end, emit = close + length, (add, code.strip() or code, {"code": True})
+                    break
+        elif char == "!":
+            close = bracket(at + 2) if text.startswith("![", at) else -1
+            found = tail(_IMAGE_TAIL, close) if close != -1 else None
+            if found:
+                end, emit = found.end(), (add, text[at + 2:close] or found["target"], {})
+        elif char == "[":
+            close = bracket(at + 1)
+            found = tail(_LINK_TAIL, close) if close > at + 1 else None
+            if found:
+                end = found.end()
+                if found["target"].lower().startswith(LINK_SCHEMES):
+                    emit = (nested, text[at + 1:close], {"href": found["target"]})
+                else:
+                    emit = (nested, text[at + 1:close], {}, f" ({found['target']})")
+        elif char == "<":
+            found = _AUTOLINK.match(text, at)
+            if found:
+                end, emit = found.end(), (add, found[1], {"href": found[1]})
+        elif char == "*":
+            for mark, style in (("***", {"bold": True, "italic": True}), ("**", {"bold": True})):
+                length = len(mark)
+                if (text.startswith(mark, at) and at + length < size
+                        and not text[at + length].isspace()):
+                    close = closer(mark, at + length + 1, line_end)
+                    if close != -1:
+                        end, emit = close + length, (nested, text[at + length:close], style)
+                        break
+            if end is None and tight and text[at + 1] != "*":
+                close = text.find("*", at + 2) if at > dead.get("*", -1) else -1
+                if close == -1:
+                    dead["*"] = size
+                elif not text[close - 1].isspace():
+                    end, emit = close + 1, (nested, text[at + 1:close], {"italic": True})
+        elif not word(at - 1):  # "_": only at the start of a word
+            if text.startswith("__", at) and at + 2 < size and not text[at + 2].isspace():
+                close = closer("__", at + 3, line_end, after_word=False)
+                if close != -1:
+                    end, emit = close + 2, (nested, text[at + 2:close], {"bold": True})
+            if end is None and tight and text[at + 1] != "_":
+                close = text.find("_", at + 2) if at > dead.get("_", -1) else -1
+                if close == -1:
+                    dead["_"] = size
+                elif not text[close - 1].isspace() and not word(close + 1):
+                    end, emit = close + 1, (nested, text[at + 1:close], {"italic": True})
+        if end is None:
+            position = at + 1
+            continue
+        add(text[done:at])
+        emit[0](emit[1], **emit[2])
+        for extra in emit[3:]:
+            add(extra)
+        done = position = end
+    add(text[done:])
+    merged: list[dict] = []  # neighbours with the same style become one piece
+    for span in spans:
+        if merged and all(merged[-1][key] == span[key] for key in _STYLE_KEYS):
+            merged[-1]["parts"].append(span["text"])
         else:
-            spans += inline_spans(found["italic"] or found["italic_u"], bold, True, href)
-    add(text[position:])
-    return spans
+            merged.append({**span, "parts": [span["text"]]})
+    return [{"text": "".join(span["parts"]), **{key: span[key] for key in _STYLE_KEYS}}
+            for span in merged]
 
 
 def spans_text(spans: list[dict]) -> str:
@@ -206,12 +327,11 @@ def markdown_blocks(lines: list[str], rich: bool = False) -> list[dict]:
             table = tables = tables + 1
             table_row(paragraph.pop())
             continue
-        heading = _ATX.match(line)
+        heading = atx_heading(line)
         if heading:
             flush()
-            if (heading.group(2) or "").strip():
-                blocks.append({"text": heading.group(2).strip(), "kind": "heading",
-                               "level": len(heading.group(1))})
+            if heading[1]:
+                blocks.append({"text": heading[1], "kind": "heading", "level": heading[0]})
             continue
         if paragraph and len(paragraph) == 1 and _SETEXT.match(line):
             blocks.append({"text": paragraph[0].strip(), "kind": "heading",
@@ -243,9 +363,16 @@ def markdown_blocks(lines: list[str], rich: bool = False) -> list[dict]:
             block["cell_spans"] = [inline_spans(cell) for cell in block["cells"]]
             block["cells"] = [spans_text(spans) for spans in block["cell_spans"]]
             block["text"] = table_text(block["cells"])
+            if sum(len(spans) for spans in block["cell_spans"]) > MAX_SPANS:
+                block["cell_spans"] = [[{"text": cell}] for cell in block["cells"]]
+                block["styles_dropped"] = True
         elif block["kind"] not in ("code", "rule"):
-            block["spans"] = inline_spans(block["text"])
-            block["text"] = spans_text(block["spans"])
+            spans = inline_spans(block["text"])
+            block["text"] = spans_text(spans)
+            if len(spans) > MAX_SPANS:  # the text stays, its inline styles go
+                block["styles_dropped"] = True
+            else:
+                block["spans"] = spans
     return blocks
 
 
