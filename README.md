@@ -23,8 +23,8 @@ there, and Claude can use the result without loading the whole document into the
 
 | | File on the [latest release](https://github.com/KelesogluMustafa/pdfstruct/releases/latest) |
 |---|---|
-| **Recommended** | `PDFStruct-Windows-Setup-0.2.1.zip` |
-| **No Python** | `PDFStruct-Portable-0.2.1-win64.zip` |
+| **Recommended** | `PDFStruct-Windows-Setup-0.3.0.zip` |
+| **No Python** | `PDFStruct-Portable-0.3.0-win64.zip` |
 
 ## Contents
 
@@ -107,7 +107,7 @@ Create this as WEBSITE_STRATEGY_AUDIT_TEMPLATE.docx using PDFStruct. Do not repe
 - **In Claude:** the `create_document` tool. Claude gets back a status and the paths, not the
   text. Without a folder the files go to `Documents\PDFStruct`.
 - **Command line:** `pdfstruct-create --name NOTES --format docx,pdf --content-file notes.md`,
-  or pipe the text in.
+  or pipe the text in (`pdfstruct-create.exe` in the portable folder).
 - **Desktop window:** the **Create from text** tab.
 
 Markdown becomes Word headings, real lists, real tables and monospace code; plain text is
@@ -119,9 +119,9 @@ and [CLI reference](docs/CLI_REFERENCE.md#pdfstruct-create).
 
 | Goal | Use |
 |---|---|
-| Recommended Windows installation | `PDFStruct-Windows-Setup-0.2.1.zip` |
-| Desktop window and command line without Python | `PDFStruct-Portable-0.2.1-win64.zip` |
-| Claude Desktop chat | Windows Setup + `pdfstruct-0.2.1.mcpb` (+ `pdfstruct-skill.zip` if you do not use the plugin) |
+| Recommended Windows installation | `PDFStruct-Windows-Setup-0.3.0.zip` |
+| Desktop window and command line without Python | `PDFStruct-Portable-0.3.0-win64.zip` |
+| Claude Desktop chat | Windows Setup + `pdfstruct-0.3.0.mcpb` (+ `pdfstruct-skill.zip` if you do not use the plugin) |
 | Claude Code / Cowork | Windows Setup + `pdfstruct-plugin.zip` |
 | Development, macOS, Linux | The wheel or a source checkout: see [Installation](docs/INSTALLATION.md) |
 
@@ -139,7 +139,7 @@ Good to know:
 Needs Python 3.10, 3.11, 3.12 or 3.13 from [python.org](https://www.python.org/downloads/).
 
 1. Open the [latest release](https://github.com/KelesogluMustafa/pdfstruct/releases/latest).
-2. Download `PDFStruct-Windows-Setup-0.2.1.zip`.
+2. Download `PDFStruct-Windows-Setup-0.3.0.zip`.
 3. Extract it.
 4. Run `install-windows.cmd`.
 5. Start the desktop window:
@@ -160,10 +160,11 @@ PATH and does not touch your system Python packages.
 
 Python is not required.
 
-1. Download `PDFStruct-Portable-0.2.1-win64.zip` from the
+1. Download `PDFStruct-Portable-0.3.0-win64.zip` from the
    [latest release](https://github.com/KelesogluMustafa/pdfstruct/releases/latest).
 2. Extract it completely. Do not run it from inside the ZIP.
-3. Run `PDFStruct.exe` (desktop window) or `pdfstruct-cli.exe` (command line).
+3. Run `PDFStruct.exe` (desktop window), `pdfstruct-cli.exe` (command line) or
+   `pdfstruct-create.exe` (text to documents).
 
 - The package is large because Qt and the OCR runtime are included.
 - The first OCR run may download the OCR models (about 13 MB with the default models).
@@ -173,8 +174,10 @@ Python is not required.
 
 ## Claude Desktop setup
 
-1. Install [Windows Setup](#windows-setup-quick-start).
-2. Download `pdfstruct-0.2.1.mcpb` and install it in Claude:
+1. Install [Windows Setup](#windows-setup-quick-start). Coming from 0.2.1: install with the
+   0.3.0 Setup ZIP once; the 0.2.1 updater does not accept 0.3.0 (see
+   [Installation](docs/INSTALLATION.md#update-check-list-roll-back)).
+2. Download `pdfstruct-0.3.0.mcpb` and install it in Claude:
    **Settings → Extensions → Advanced settings → Install Extension**.
 3. Skill: if you also install the [plugin](#claude-code--cowork-setup), you are done. If you
    use only the extension, add `pdfstruct-skill.zip` in Claude's skill settings so Claude
@@ -240,8 +243,8 @@ The only network access is the one-time download of the OCR models.
 - **CSV and XLSX** contain extracted text blocks, one per row. They are not reconstructed tables.
 - **DOCX to PDF** is a readable reflow, not a pixel-perfect copy of the layout.
 - **Created documents:** PDF is a readable A4 reflow. Pictures are not embedded, block quotes
-  and embedded HTML stay plain text, and at most 500,000 characters are accepted per
-  document.
+  and embedded HTML stay plain text, and one document holds at most 500,000 characters and
+  20,000 paragraphs, list items and table rows.
 - **Same-format conversions** (DOCX to DOCX, Markdown to Markdown) keep the text, not the styling.
 - PDFStruct does **not** summarize, understand meaning or extract fields such as invoice
   numbers. It produces reliable raw text and structure.
@@ -268,7 +271,7 @@ The only network access is the one-time download of the OCR models.
 
 | | |
 |---|---|
-| Version | v0.2.1 |
+| Version | v0.3.0 |
 | Stage | Alpha |
 | License | MIT, free and open source |
 | Repository | Public |

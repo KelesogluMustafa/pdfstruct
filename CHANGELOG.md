@@ -15,11 +15,23 @@
 - Command `pdfstruct-create` (text from `--content-file` or standard input)
 - Desktop window: a second tab, "Create from text"
 - Safe by default: the name is a file name only (no folder, no traversal, no reserved Windows
-  name), existing files are kept and reported unless overwriting was asked for, and nothing
-  is written, not even temporarily, when a request fails
+  name), existing files are kept and reported unless overwriting was asked for, and a call
+  writes all of its files or none: each is written under a temporary name and then moved
+  into place
+- Limits: 500,000 characters and 20,000 paragraphs, list items and table rows per document.
+  Malformed Markdown is parsed in linear time
+- Portable package: `pdfstruct-create.exe` next to the window and the command line
 - Everything runs locally: no upload, no network access, no LLM call. Writing the text still
   costs tokens; formatting and saving it does not
-- No change to file conversion, OCR, the existing commands or the existing MCP tools
+- No change to file conversion, OCR, the existing commands or the existing MCP tools, with
+  two fixes that also reach file conversion: a Markdown heading with a long run of spaces no
+  longer takes quadratic time to read, and a heading about a page tall no longer makes the
+  PDF writer hang
+- Updating from 0.2.1: run `install-windows.cmd` from the 0.3.0 Setup ZIP. `update-windows.cmd`
+  of 0.2.1 rejects 0.3.0 because its runtime check expects exactly five MCP tools; it leaves
+  0.2.1 active. The check now accepts additional tools, so later updates are not affected
+- Local CI builds into a temporary folder and never deletes `dist/`; the release builder no
+  longer empties its output folder
 
 ## 0.2.1
 

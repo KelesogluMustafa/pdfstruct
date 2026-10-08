@@ -5,7 +5,7 @@ Where the commands are:
 | Installation | Command |
 |---|---|
 | Windows Setup | `%USERPROFILE%\.local\pdfstruct\current\Scripts\pdfstruct.exe` (and the aliases next to it) |
-| Windows portable | `pdfstruct-cli.exe` in the extracted folder |
+| Windows portable | `pdfstruct-cli.exe` and `pdfstruct-create.exe` in the extracted folder |
 | pip | `pdfstruct` in the active environment |
 | Source checkout on Windows | `pdfstruct.cmd`, `pdfjson.cmd`, ... in the repository root |
 
@@ -202,7 +202,9 @@ Get-Content .\template.md -Raw |
   `--content-file` there, or PowerShell 7.
 - What Markdown is read and what each format looks like:
   [Claude integration](CLAUDE_INTEGRATION.md#create-a-document-from-conversation-text).
-- Not in the portable package: there, use the **Create from text** tab of the window.
+- A file larger than the limit (500,000 characters) is refused without being loaded.
+- Messages, also errors, go to standard output like those of the other commands; only
+  wrong options are reported by the option parser on standard error.
 
 ## Desktop window
 

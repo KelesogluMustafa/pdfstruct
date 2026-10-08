@@ -1542,13 +1542,17 @@ text in memory -> pdfstruct.create.create_document -> block model -> writers -> 
   line uses the current folder.
 - Existing files are never replaced silently: a conflict writes nothing at all. Replacing
   needs an explicit `overwrite`, which Claude sets only on the user's request.
-- Every format is rendered in memory before the first file is written. A file appears on
-  disk complete (written next to its target, then moved). There is no temporary source file
-  and nothing is left behind after a failure.
+- All or nothing: every format is rendered in memory, then every file is written under a
+  temporary name next to its target, and only then are the files moved into place. If that
+  last step fails part-way, files the call had created are removed again; a file that
+  `overwrite` had already replaced stays and is reported. There is no temporary source file
+  and no temporary file is left behind.
 - The result carries a status (`created`, `conflict`, `invalid`, `failed`), the created
   paths and at most five short warnings. It never carries the text, and neither do errors,
   logs or the MCP channel.
-- At most 500,000 characters per document. Larger text is saved as a file and converted.
+- At most 500,000 characters and 20,000 blocks per document. Larger text is saved as a file
+  and converted. Parsing is linear in the length of the text, also for malformed Markdown;
+  blocks the writers cannot lay out quickly are written plainly with a warning.
 - Same text, same bytes, for all five formats.
 
 ## 36.3 Honest limits
@@ -1563,6 +1567,17 @@ text in memory -> pdfstruct.create.create_document -> block model -> writers -> 
 - Tokens: the model still spends tokens to write the text. PDFStruct does the formatting and
   the writing locally and returns paths only, so the text is not repeated. No "zero tokens"
   and no "Claude never sees it" claims.
+
+---
+
+## 36.4 Build folders
+
+- `dist/release-<version>/` holds release files and is only ever cleaned by hand.
+  `scripts/build_release_assets.py` replaces the files it builds there and leaves the rest.
+- `scripts/ci_local.py` builds into its own temporary folder and refuses any folder inside
+  `dist/`. Tests and local CI never delete release files.
+- `scripts/verify_runtime.py` requires the tools it knows and accepts additional ones, so an
+  older installer can activate a newer runtime that added a tool.
 
 ---
 

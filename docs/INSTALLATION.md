@@ -56,6 +56,11 @@ An update is downloaded from GitHub Releases, verified against its SHA-256 check
 installed next to the old version, checked, and only then made active. The old version is
 kept. Nothing runs in the background: there is no service and no scheduled task.
 
+From 0.2.1 to 0.3.0, run `install-windows.cmd` from the 0.3.0 Setup ZIP instead: the runtime
+check of 0.2.1 expects exactly five MCP tools and therefore rejects 0.3.0, which has six. It
+leaves 0.2.1 active and says so. From 0.3.0 on the check accepts additional tools, so later
+updates work with `update-windows.cmd` again. The 0.2.1 version stays installed for rollback.
+
 After an update, restart Claude. The Claude extension and plugin follow `current` and do not
 need to be reinstalled. Install a newer `.mcpb` or plugin by hand only when a release says
 they changed.
@@ -77,7 +82,8 @@ OCR models are stored separately in `%USERPROFILE%\.pdfstruct\models`.
 `PDFStruct-Portable-<version>-win64.zip` needs no Python and installs nothing.
 
 1. Extract the ZIP completely. Do not start the programs from inside the ZIP.
-2. Run `PDFStruct.exe` (desktop window) or `pdfstruct-cli.exe` (command line). Keep the
+2. Run `PDFStruct.exe` (desktop window), `pdfstruct-cli.exe` (command line) or
+   `pdfstruct-create.exe` (text to documents). Keep the
    `_internal` folder next to them.
 
 Notes:
@@ -138,10 +144,11 @@ python scripts/ci_local.py
 version check, test suite, wheel and sdist build, a clean temporary environment with the
 built wheel, every console script, native and OCR conversions, the desktop window without a
 display, the MCP server over stdio and the skill archives. Tests only:
-`python -m pytest -q`.
+`python -m pytest -q`. It builds into its own temporary folder and never touches `dist/`.
 
 `python scripts/build_release_assets.py` writes the release files reproducibly to
-`dist/release-<version>/`. The architecture and the rules for changes are in
+`dist/release-<version>/`. It replaces the files it builds and leaves everything else in
+that folder alone; old release folders are only removed by hand. The architecture and the rules for changes are in
 [MASTER_ARCHITECTURE.md](MASTER_ARCHITECTURE.md).
 
 ### Repository layout

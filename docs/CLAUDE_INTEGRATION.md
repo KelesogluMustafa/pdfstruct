@@ -93,7 +93,7 @@ Create this as WEBSITE_STRATEGY_AUDIT_TEMPLATE.docx using PDFStruct. Do not repe
 | Parameter | Meaning |
 |---|---|
 | `name` | File name without folder. `REPORT` writes `REPORT.docx`. An extension in the name (`REPORT.docx`) is dropped, never doubled. |
-| `content` | The text. At most 500,000 characters; empty text is rejected. |
+| `content` | The text. At most 500,000 characters and 20,000 paragraphs, list items and table rows; empty text is rejected. |
 | `formats` | One or more of `docx`, `pdf`, `html`, `md`, `txt`. Default `["docx"]`. |
 | `output_dir` | An absolute folder; it is created when missing. Default: `Documents\PDFStruct` in your user profile. |
 | `content_type` | `markdown` (default) or `text`. |
@@ -108,9 +108,9 @@ The answer holds a status, the created paths and short warnings, nothing else:
 | Status | Meaning |
 |---|---|
 | `created` | Every requested file was written. |
-| `conflict` | A file with that name exists. Nothing was written, also not the other formats. |
+| `conflict` | A file or folder with that name exists. Nothing was written, also not the other formats. |
 | `invalid` | The name, format, folder or text cannot be used; `error` says which. |
-| `failed` | Rendering or writing failed. Nothing partial is left. |
+| `failed` | Rendering or writing failed. Files this call had created are removed again; a file that `overwrite` had already replaced stays and is listed in `outputs`. |
 
 What is read:
 
@@ -121,16 +121,24 @@ What is read:
   never downloaded or embedded; their alt text is kept.
 - **Text:** paragraphs and line breaks as they are. Nothing is read as markup.
 - `{{PLACEHOLDER}}` values are kept exactly in both.
-- PDF is a readable A4 reflow, not a designed layout. HTML is one self-contained page: all
-  input is escaped and the page can load or run nothing.
+- DOCX and PDF are A4. PDF is a readable reflow, not a designed layout. HTML is one
+  self-contained page: all input is escaped and the page can load or run nothing.
+- Very unusual text is written plainly instead of slowly, with a warning: a block with more
+  than 2,000 styled pieces loses its inline styles, a block longer than 20,000 characters is
+  laid out in pieces in the PDF, a table wider than 63 columns becomes text rows in DOCX,
+  and a table row taller than a page turns the tables of the PDF into text rows.
 
 Rules that keep it safe:
 
-- `name` is only a file name. Folders, `..`, drive letters, control characters and reserved
-  Windows names (`CON`, `NUL`, `COM1`, ...) are rejected.
+- `name` is only a file name. Folders, `..`, drive letters, control characters, characters
+  that reorder text on screen and reserved Windows names (`CON`, `NUL`, `COM1`, ...) are
+  rejected.
+- A call with missing or wrongly typed arguments is answered with the field and the reason;
+  the rejected input, which may be the text, is not quoted.
 - An existing file is never replaced unless `overwrite` is `true`, and Claude sets that only
   when you ask for a replacement.
-- The text is not written to a temporary source file, not logged and not sent anywhere.
+- The text is not written to a source file, not logged and not sent anywhere. Each document
+  is written under a temporary name next to its target and then moved into place.
 
 About tokens: Claude still spends tokens writing the text, and it has seen that text because
 it wrote it. What PDFStruct saves is the rest: formatting and writing the file happen on your
