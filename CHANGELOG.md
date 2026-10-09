@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0 (unreleased)
+## 0.3.0
 
 - New: text to local document. Text that exists only in a conversation, a terminal pipe or the
   window is written as DOCX, PDF, HTML, Markdown or TXT on this computer, without a source file
