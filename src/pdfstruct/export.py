@@ -335,13 +335,14 @@ def _xlsx_sheet(workbook, title: str, columns: list[str], widths: dict, rows) ->
         cell.font = Font(bold=True)
     wrap = Alignment(wrap_text=True, vertical="top")
     text_col = columns.index("text") + 1
-    for row in rows:
+    # the row number is counted here: sheet.max_row and sheet[n] rescan every cell on each call
+    for number, row in enumerate(rows, start=2):
         sheet.append(row)
-        for cell in sheet[sheet.max_row]:
+        for index, value in enumerate(row, start=1):
             # extracted text is never a formula, even if it starts with "="
-            if isinstance(cell.value, str) and cell.value.startswith("="):
-                cell.data_type = "s"
-        sheet.cell(row=sheet.max_row, column=text_col).alignment = wrap
+            if isinstance(value, str) and value.startswith("="):
+                sheet.cell(row=number, column=index).data_type = "s"
+        sheet.cell(row=number, column=text_col).alignment = wrap
     for index, column in enumerate(columns, start=1):
         letter = sheet.cell(row=1, column=index).column_letter
         sheet.column_dimensions[letter].width = widths.get(column, 12)

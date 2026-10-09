@@ -16,8 +16,8 @@
 
 | Download from the [latest release](https://github.com/KelesogluMustafa/pdfstruct/releases/latest) | File |
 |---|---|
-| **Portable** (no Python needed) | `PDFStruct-Portable-0.3.0-win64.zip` |
-| **Windows Setup** (needs Python, required for Claude) | `PDFStruct-Windows-Setup-0.3.0.zip` |
+| **Portable** (no Python needed) | `PDFStruct-Portable-0.3.1-win64.zip` |
+| **Windows Setup** (needs Python, required for Claude) | `PDFStruct-Windows-Setup-0.3.1.zip` |
 
 ## What is it?
 
@@ -45,7 +45,7 @@ and Claude Desktop, Claude Code and Cowork users.
 
 ### Portable (Windows, no Python)
 
-1. Download `PDFStruct-Portable-0.3.0-win64.zip` from the
+1. Download `PDFStruct-Portable-0.3.1-win64.zip` from the
    [latest release](https://github.com/KelesogluMustafa/pdfstruct/releases/latest).
 2. Extract it completely. Do not run it from inside the ZIP.
 3. Run `PDFStruct.exe` (desktop window), `pdfstruct-cli.exe` (command line) or
@@ -57,7 +57,7 @@ updater and no Claude integration.
 ### Windows Setup (needs Python 3.10 to 3.13)
 
 1. Install Python from [python.org](https://www.python.org/downloads/).
-2. Download `PDFStruct-Windows-Setup-0.3.0.zip` from the
+2. Download `PDFStruct-Windows-Setup-0.3.1.zip` from the
    [latest release](https://github.com/KelesogluMustafa/pdfstruct/releases/latest) and extract it.
 3. Run `install-windows.cmd`.
 4. Start the desktop window:
@@ -112,7 +112,7 @@ Claude integrations need Windows Setup; Portable does not include the MCP server
 
 | You use | Install after Windows Setup |
 |---|---|
-| Claude Desktop chat | `pdfstruct-0.3.0.mcpb` (plus `pdfstruct-skill.zip` if you do not use the plugin) |
+| Claude Desktop chat | `pdfstruct-0.3.1.mcpb` (plus `pdfstruct-skill.zip` if you do not use the plugin) |
 | Claude Code / Cowork | `pdfstruct-plugin.zip` |
 
 Then ask, for example:
@@ -150,7 +150,7 @@ you explicitly ask Claude to read or search it. Step-by-step setup, the MCP tool
 
 ## Project Status
 
-Version 0.3.0, alpha. Free and open source; all functionality is available without payment,
+Version 0.3.1, alpha. Free and open source; all functionality is available without payment,
 accounts, usage limits or tracking. The only network access is the one-time download of the
 OCR models. Automated tests run on Windows, Ubuntu and macOS.
 
