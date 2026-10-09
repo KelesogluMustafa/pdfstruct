@@ -50,6 +50,11 @@ Rules:
   and the page does not count toward the score.
 - No text, but images or objects: score 0.0, so **OCR**.
 - Score below `min_page_score` (default 0.5): **OCR**.
+- OCR ran and found no text (a picture without writing, an empty scan): the page keeps
+  `method: "none"` and gets the warning `no_text_found`. It is not counted as an OCR page and
+  is not sent to review, the same as an image input without text.
+- An OCR page is listed in `review_pages` when its average confidence is **below**
+  `ocr_review_confidence` (default 0.60). A page read with 0.78 is therefore not flagged.
 
 The document score (`text_layer_score`) is the average of the non-empty pages. All components
 are written page by page to `<name>.summary.json`, so every decision can be explained.
@@ -65,6 +70,12 @@ score cannot detect it. When in doubt, use `--force-ocr`.
 | `<name>.summary.json` | Method, score and warnings per page; no text | Yes |
 | `_run_summary.json` | Totals of the run, one line per document | Yes |
 | `<name>.parsed.json` | Output of `--parser` | Depends on the parser |
+
+`_run_summary.json` is the report of the batch extraction command: the aliases (`pdfjson`,
+`pdfxlsx`, ...) write it whenever they extract. The desktop window, the MCP server, the
+interactive menu and `pdfstruct` with several formats use the conversion service instead; it
+hands the same information back directly (shown in the window, returned to Claude) and does
+not write `_run_summary.json`. `<name>.summary.json` is written in every case.
 
 ### Raw JSON
 

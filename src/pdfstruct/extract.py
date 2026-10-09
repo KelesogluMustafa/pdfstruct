@@ -270,6 +270,8 @@ def ocr_page(page, native: dict, client: ocr.OcrEngine, ocfg: dict, tmp_dir: Pat
 
 # ---------------------------------------------------------------- one document
 
+NO_TEXT_FOUND = "no_text_found: OCR ran and did not find text on this page"
+
 def process_page(page, number: int, mode: str, cfg: dict, client: ocr.OcrEngine, tmp_dir: Path,
                  notify=None) -> dict:
     qcfg = cfg["quality"]
@@ -300,6 +302,10 @@ def process_page(page, number: int, mode: str, cfg: dict, client: ocr.OcrEngine,
             if not result["blocks"] and quality["chars"] > 0 and mode != "force-ocr":
                 warnings.append("ocr_returned_nothing_kept_native")
                 needs_review = True
+            elif not result["blocks"]:
+                # OCR ran and read nothing: the page is empty, not "read by OCR"
+                method, text, blocks = "none", "", []
+                warnings.append(NO_TEXT_FOUND)
             else:
                 method, text, blocks = "ocr", result["text"], result["blocks"]
                 ocr_confidence = result["confidence"]

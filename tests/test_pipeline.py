@@ -4,9 +4,16 @@ import sys
 from pathlib import Path
 
 import jsonschema
+import pypdfium2 as pdfium
 import pytest
+from PIL import Image
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.utils import ImageReader
+from reportlab.pdfgen import canvas
 
-from conftest import TOOL_DIR, UMLAUT_LINE, make_mixed_pdf, make_scan_pdf, make_text_pdf
+from conftest import TOOL_DIR, UMLAUT_LINE, _scan_image, make_mixed_pdf, make_scan_pdf, make_text_pdf
+from pdfstruct import extract as pdf_to_json
+from pdfstruct import ocr
 
 SCHEMA = json.loads((TOOL_DIR / "schemas" / "raw_document.schema.json").read_text(encoding="utf-8"))
 
@@ -103,6 +110,117 @@ def test_blank_page_and_multipage(tmp_path, run_tool):
     assert "Seite 40" in raw["pages"][39]["text"]
 
 
+# A page that is only a picture and holds no text: OCR runs, reads nothing, and the page must
+# not be reported as read by OCR.
+def make_picture_pdf(path: Path, pages=("text", "empty", "scan")) -> Path:
+    c = canvas.Canvas(str(path), pagesize=A4)
+    for kind in pages:
+        if kind == "text":
+            c.setFont("Helvetica", 12)
+            c.drawString(72, 770, "Native Seite mit Textebene")
+        else:
+            image = Image.new("RGB", (620, 877), "white") if kind == "empty" else _scan_image()
+            c.drawImage(ImageReader(image), 0, 0, width=A4[0], height=A4[1])
+        c.showPage()
+    c.save()
+    return path
+
+
+def fake_ocr(monkeypatch, *answers):
+    """Replace the OCR engine: each call returns the next answer (a list of lines)."""
+    calls = []
+
+    def ocr_image(self, image_path):
+        calls.append(1)
+        return list(answers[min(len(calls), len(answers)) - 1])
+
+    monkeypatch.setattr(ocr.OcrEngine, "ocr_image", ocr_image)
+    return calls
+
+
+LINE = {"text": "Hallo Welt", "bbox": [10.0, 10.0, 200.0, 40.0], "score": 0.99}
+
+
+def test_picture_page_without_text_is_not_reported_as_ocr(tmp_path, run_tool, monkeypatch):
+    calls = fake_ocr(monkeypatch, [], [LINE])  # page 2 reads nothing, page 3 one line
+    pdf = make_picture_pdf(tmp_path / "pic.pdf")
+    out = tmp_path / "out"
+    assert run_tool("--input", pdf, "--output", out) == 0
+    raw = load_raw(out, "pic")
+    assert len(calls) == 2  # OCR was tried on both picture pages, not on the text page
+    assert raw["page_count"] == 3 and [p["page"] for p in raw["pages"]] == [1, 2, 3]  # none dropped
+    assert [p["method"] for p in raw["pages"]] == ["native", "none", "ocr"]
+    assert raw["method_counts"] == {"native": 1, "ocr": 1, "none": 1, "error": 0}
+    empty = raw["pages"][1]
+    assert empty["text"] == "" and empty["blocks"] == [] and empty["ocr_confidence"] is None
+    assert empty["text_layer"]["blank"] is False  # the page has a picture: it is not a blank page
+    assert empty["warnings"] == [pdf_to_json.NO_TEXT_FOUND]
+    assert empty["needs_review"] is False and raw["review_pages"] == []  # same as an empty image
+    summary = load(out / "pic.summary.json")
+    assert summary["pages"][1]["method"] == "none"
+    assert summary["pages"][1]["warnings"] == [pdf_to_json.NO_TEXT_FOUND]
+
+
+def test_document_of_empty_picture_pages_did_not_use_ocr(tmp_path, run_tool, monkeypatch):
+    fake_ocr(monkeypatch, [])
+    pdf = make_picture_pdf(tmp_path / "empty.pdf", pages=("empty", "empty"))
+    out = tmp_path / "out"
+    assert run_tool("--input", pdf, "--output", out) == 0
+    raw = load_raw(out, "empty")
+    assert raw["extraction_method"] == "none" and raw["ocr_used"] is False
+    assert raw["ocr_engine"] is None
+    assert raw["method_counts"] == {"native": 0, "ocr": 0, "none": 2, "error": 0}
+    assert all(p["warnings"] == [pdf_to_json.NO_TEXT_FOUND] for p in raw["pages"])
+
+
+def test_ocr_lines_of_spaces_count_as_no_text(tmp_path, run_tool, monkeypatch):
+    fake_ocr(monkeypatch, [{"text": "   ", "bbox": [1.0, 1.0, 5.0, 5.0], "score": 0.4}])
+    pdf = make_picture_pdf(tmp_path / "spaces.pdf", pages=("empty",))
+    out = tmp_path / "out"
+    assert run_tool("--input", pdf, "--output", out) == 0
+    page = load_raw(out, "spaces")["pages"][0]
+    assert page["method"] == "none" and page["warnings"] == [pdf_to_json.NO_TEXT_FOUND]
+
+
+def test_force_ocr_that_reads_nothing_is_not_reported_as_ocr(tmp_path, run_tool, monkeypatch):
+    fake_ocr(monkeypatch, [])
+    pdf = make_text_pdf(tmp_path / "text.pdf")
+    out = tmp_path / "out"
+    assert run_tool("--input", pdf, "--output", out, "--force-ocr") == 0
+    page = load_raw(out, "text")["pages"][0]
+    assert page["method"] == "none" and page["text"] == ""  # forced OCR never falls back to native
+    assert page["warnings"] == [pdf_to_json.NO_TEXT_FOUND]
+
+
+def test_weak_text_layer_is_still_kept_when_ocr_reads_nothing(tmp_path, monkeypatch):
+    # unchanged rule: a page that has (weak) native text keeps it and is flagged for review
+    fake_ocr(monkeypatch, [])
+    pdf = make_text_pdf(tmp_path / "weak.pdf")
+    cfg = json.loads(json.dumps(pdf_to_json.DEFAULT_CONFIG))
+    cfg["quality"]["min_page_score"] = 1.1  # every page "needs" OCR
+    document = pdfium.PdfDocument(str(pdf))
+    try:
+        page = document[0]
+        record = pdf_to_json.process_page(page, 1, "auto", cfg, ocr.OcrEngine(cfg["ocr"]), tmp_path)
+        page.close()
+    finally:
+        document.close()
+    assert record["method"] == "native" and "Seite 1" in record["text"]
+    assert record["warnings"] == ["ocr_returned_nothing_kept_native"] and record["needs_review"] is True
+
+
+def test_real_ocr_on_an_empty_picture_page(tmp_path, run_tool, ocr_available):
+    if not ocr_available:
+        pytest.skip("no OCR python available")
+    pdf = make_picture_pdf(tmp_path / "real.pdf", pages=("empty", "scan"))
+    out = tmp_path / "out"
+    assert run_tool("--input", pdf, "--output", out) == 0
+    raw = load_raw(out, "real")
+    assert [p["method"] for p in raw["pages"]] == ["none", "ocr"]
+    assert raw["pages"][0]["warnings"] == [pdf_to_json.NO_TEXT_FOUND]
+    assert raw["ocr_used"] is True and "Hallo" in raw["pages"][1]["text"]
+
+
 # 7 + 8 + 9: folder input, output folder created, corrupt PDF isolated
 def test_folder_with_corrupt_pdf(tmp_path, run_tool, capsys):
     src = tmp_path / "pdf"
@@ -188,3 +306,30 @@ def test_cli_subprocess_missing_input(tmp_path):
          "--input", str(tmp_path / "nope"), "--output", str(tmp_path / "out")],
         capture_output=True, text=True)
     assert result.returncode == 2 and "ERROR" in result.stdout
+
+
+# OCR review threshold: quality.ocr_review_confidence (default 0.60), review strictly below it
+@pytest.mark.parametrize("score, review", [(0.78, False), (0.60, False), (0.59, True)])
+def test_ocr_review_threshold_on_a_pdf_page(tmp_path, run_tool, monkeypatch, score, review):
+    assert pdf_to_json.DEFAULT_CONFIG["quality"]["ocr_review_confidence"] == 0.60
+    fake_ocr(monkeypatch, [dict(LINE, score=score)])
+    pdf = make_picture_pdf(tmp_path / "t.pdf", pages=("scan",))
+    out = tmp_path / "out"
+    assert run_tool("--input", pdf, "--output", out) == 0
+    raw = load_raw(out, "t")
+    page = raw["pages"][0]
+    assert page["method"] == "ocr" and page["ocr_confidence"] == score
+    assert page["needs_review"] is review and raw["review_pages"] == ([1] if review else [])
+    assert page["warnings"] == (["low_ocr_confidence"] if review else [])
+
+
+@pytest.mark.parametrize("score, review", [(0.78, False), (0.59, True)])
+def test_ocr_review_threshold_on_an_image(tmp_path, monkeypatch, score, review):
+    from conftest import make_image
+    from pdfstruct.service import JobRequest, run_job
+
+    monkeypatch.setattr(ocr, "available", lambda: True)
+    fake_ocr(monkeypatch, [dict(LINE, score=score)])
+    item = run_job(JobRequest(inputs=[make_image(tmp_path / "scan.png")], formats=["json"])).files[0]
+    assert item.status == "succeeded" and item.method == "ocr"
+    assert item.review_pages == ([1] if review else [])

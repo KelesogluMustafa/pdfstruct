@@ -1,7 +1,7 @@
 # PDFStruct — Master Architecture & Development Constitution
 
 > **Status:** Active project source of truth  
-> **Current public release:** v0.2.0  
+> **Current public release:** v0.3.0  
 > **Project:** PDFStruct  
 > **Repository:** https://github.com/KelesogluMustafa/pdfstruct  
 > **Website:** https://mustafakelesoglu.de/pdfstruct  
