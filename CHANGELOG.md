@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1
 
 - Fix: writing XLSX no longer slows down with every row. A 73-page PDF with about 29,000
   blocks took 277 seconds to write and now takes 2; the file content is unchanged
