@@ -137,6 +137,8 @@ you explicitly ask Claude to read or search it. Step-by-step setup, the MCP tool
   numbers. It produces reliable raw text and structure.
 - **OCR runs on the CPU.** GPU use is not a ready, supported setup.
 - **Non-Latin** OCR and PDF output are not ready defaults.
+- **Not read as text, on purpose:** DOCX comments and PDF sticky notes (only counted), HTML page
+  titles and image alt text, password and hidden form fields.
 - **Not supported as input:** `.doc`, RTF, ODT, EPUB, PowerPoint, HEIC, CSV, XLSX.
 - **Created documents** hold at most 500,000 characters; pictures are not embedded.
 

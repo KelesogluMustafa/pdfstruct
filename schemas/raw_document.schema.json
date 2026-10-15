@@ -374,9 +374,17 @@
           "enum": [
             "header",
             "footer",
-            "textbox"
+            "textbox",
+            "footnote",
+            "endnote",
+            "form",
+            "annotation"
           ],
-          "description": "DOCX: block read from a page header, page footer or text box. Absent for body text."
+          "description": "Where a block comes from when it is not body text. DOCX: header, footer, textbox, footnote, endnote. PDF: form (a filled-in form field) or annotation (visible free-text annotation)."
+        },
+        "field": {
+          "type": "string",
+          "description": "PDF form blocks: the name of the form field."
         }
       }
     }

@@ -30,7 +30,11 @@ EXTENSIONS = {
 IMAGE_FORMATS = ("jpeg", "png", "tiff", "bmp", "webp")
 # Raised when an adapter starts reading more of its format, so cached raw documents of that
 # format are extracted again. Formats without an entry keep their fingerprint unchanged.
-READER_REVISIONS = {"docx": "2"}  # 2: text boxes, headers and footers
+# PDF is handled in extract._pdf_revision (only PDFs with a form are refreshed).
+READER_REVISIONS = {
+    "docx": "3",  # 2: text boxes, headers, footers; 3: fields, insertions, nested tables, notes
+    "html": "2",  # 2: form values, tables inside table cells
+}
 TEXT_FORMATS = ("docx", "txt", "md", "html")  # text is read directly; OCR never applies
 INPUT_FORMATS = ("pdf", *TEXT_FORMATS, *IMAGE_FORMATS)
 

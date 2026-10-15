@@ -2,7 +2,10 @@
 
 Reads the file as text. Nothing is executed, no network request is made and no
 external asset is loaded: scripts, styles, templates and hidden elements are
-dropped, links and images are ignored.
+dropped, links and images (including alt text and the page <title>, which are not shown
+as page text) are ignored. Visible text that is not plain markup is kept: filled-in form
+values (text inputs, text areas, the selected option) and tables inside table cells, read
+as text of their cell.
 """
 from __future__ import annotations
 
@@ -14,7 +17,10 @@ from . import table_text, unpaged_page
 from .text import decode
 
 _SKIP = {"script", "style", "noscript", "template", "svg", "math", "head", "iframe", "object",
-         "embed", "canvas", "select", "textarea", "button"}
+         "embed", "canvas", "button", "datalist"}
+# <input> types whose value is text the user typed or a page shows
+_TEXT_INPUTS = {"", "text", "email", "tel", "url", "search", "number", "date", "datetime-local",
+                "month", "week", "time"}
 _HEADINGS = {"h1": 1, "h2": 2, "h3": 3, "h4": 4, "h5": 5, "h6": 6}
 _BLOCKS = {"p", "div", "section", "article", "main", "header", "footer", "aside", "blockquote",
            "figure", "figcaption", "address", "dl", "dt", "dd", "form", "fieldset", "ul", "ol",
@@ -56,6 +62,10 @@ class _Extractor(HTMLParser):
         self.tables: list[int] = []
         self.row: list[str] | None = None
         self.cell: list[str] | None = None
+        self.nested_tables = 0          # depth of tables inside the current cell
+        self.nested_seen = False
+        self.select: dict | None = None
+        self.option: dict | None = None
 
     # -- helpers
     def _text(self, parts: list[str]) -> str:
@@ -81,12 +91,22 @@ class _Extractor(HTMLParser):
     def _reset_kind(self) -> None:
         self.kind, self.level = "paragraph", None
 
+    def _inline(self, text: str) -> None:
+        """A form value shown inside the running text."""
+        text = text.strip()
+        if text:
+            (self.cell if self.cell is not None else self.buffer).append(f" {text} ")
+
     # -- parser events
     def handle_starttag(self, tag, attrs):
         attributes = dict(attrs)
         hidden = ("hidden" in attributes or attributes.get("aria-hidden") == "true"
                   or bool(_HIDDEN_STYLE.search(attributes.get("style") or "")))
         if tag in _VOID:
+            if self.skip or hidden or self.row is not None and self.cell is None:
+                return
+            if tag == "input" and (attributes.get("type") or "").lower() in _TEXT_INPUTS:
+                self._inline(attributes.get("value") or "")
             if tag == "br" and not self.skip:
                 (self.cell if self.cell is not None else self.buffer).append("\n")
             elif tag == "hr" and not self.skip:
@@ -94,6 +114,22 @@ class _Extractor(HTMLParser):
             return
         if self.skip or tag in _SKIP or hidden:
             self.skip.append(tag)
+            return
+        if tag == "select":
+            self.select = {"chosen": None, "first": None}
+            return
+        if tag == "option" and self.select is not None:
+            self.option = {"text": [], "selected": "selected" in attributes}
+            return
+        if self.cell is not None and (tag == "table" or self.nested_tables):
+            if tag == "table":  # a table inside a cell is read as text of that cell
+                self.nested_tables += 1
+                self.nested_seen = True
+            if tag in ("table", "tr", "td", "th") or tag in _BLOCKS or tag == "li":
+                self.cell.append(" ")
+            return
+        if tag == "textarea":
+            self._flush()
             return
         if tag == "table":
             self._flush()
@@ -130,6 +166,28 @@ class _Extractor(HTMLParser):
             if tag in self.skip:  # tolerate unclosed tags inside a dropped element
                 del self.skip[len(self.skip) - 1 - self.skip[::-1].index(tag):]
             return
+        if tag == "option" and self.option is not None and self.select is not None:
+            text = self._text(self.option["text"]).replace("\n", " ")
+            if self.select["first"] is None:
+                self.select["first"] = text
+            if self.option["selected"] and self.select["chosen"] is None:
+                self.select["chosen"] = text
+            self.option = None
+            return
+        if tag == "select":
+            if self.select is not None:
+                self._inline(self.select["chosen"] or self.select["first"] or "")
+            self.select = self.option = None
+            return
+        if self.nested_tables:
+            if tag == "table":
+                self.nested_tables -= 1
+            if tag in ("table", "tr", "td", "th") or tag in _BLOCKS or tag == "li":
+                self.cell.append(" ")
+            return
+        if tag == "textarea":
+            self._flush()
+            return
         if tag in ("td", "th"):
             if self.cell is not None and self.row is not None:
                 self.row.append(self._text(self.cell).replace("\n", " "))
@@ -162,7 +220,10 @@ class _Extractor(HTMLParser):
             self._flush()
 
     def handle_data(self, data):
-        if self.skip:
+        if self.option is not None:
+            self.option["text"].append(data)
+            return
+        if self.skip or self.select is not None:
             return
         if self.cell is not None:
             self.cell.append(data)
@@ -176,5 +237,8 @@ def read(path: Path) -> dict:
     parser.feed("\n".join(text.splitlines()))
     parser.close()
     parser._flush()
-    return {"pages": [unpaged_page(parser.blocks)], "paged": False, "warnings": warnings,
+    blocks = parser.blocks
+    if parser.nested_seen:
+        warnings.append("html_nested_tables_flattened: tables inside table cells are read as text")
+    return {"pages": [unpaged_page(blocks)], "paged": False, "warnings": warnings,
             "coordinate_system": None}

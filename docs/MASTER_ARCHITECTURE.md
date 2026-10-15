@@ -1484,6 +1484,13 @@ Outputs: JSON, HTML, TXT, Markdown, CSV, XLSX, DOCX, JSONL, SQLite and PDF.
   LibreOffice (`pdfstruct.render`); without one it is the re-flow, with a warning.
 - Same-format round trips (DOCX to DOCX, MD to MD, TXT to TXT, HTML to HTML) lose styling and are
   reported with a warning. OCR options on text inputs are reported, not silently ignored.
+- Readers keep all text a reader of the document sees and say what they leave out. DOCX: fields,
+  content controls, tracked insertions, nested tables, text boxes, headers, footers, footnotes
+  and endnotes are read; comments are counted. HTML: visible text plus form values; title and
+  alt text are not page text. PDF: form values and free-text annotations are read; comment
+  annotations are counted. Blocks outside the main text carry `region`. A reader change
+  bumps `inputs.READER_REVISIONS` (PDF: `extract.FORMS_REVISION`, PDFs with a form only), so
+  caches refresh without redoing OCR on unaffected PDFs.
 
 ## 35.4 Interfaces and token-saving operation
 

@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- Fix: text that readers dropped without a word is now read
+  - DOCX: text inside content controls (form fields), simple and complex fields (only the
+    shown result, not the field code), smart tags and tracked insertions (tracked deletions
+    stay out, warning `docx_tracked_changes`); tables inside table cells are now read as text
+    of their cell (before, that cell came out empty although a warning said otherwise);
+    footnotes and endnotes (block `region` `footnote` / `endnote`, after the body). Comments
+    are not document text: they are only counted (`docx_comments_not_read`). A broken notes
+    part costs a warning, never the body
+  - HTML: a table inside a table cell no longer wipes the outer table's cells; it is read as
+    text of its cell (`html_nested_tables_flattened`). Filled-in form values are read: text
+    inputs, text areas and the selected option (else the first). Passwords, hidden inputs,
+    buttons and datalists stay out; the page title and image alt text stay out as before
+    (they are not shown as page text)
+  - PDF: filled-in form fields (text, choice, checked boxes as `[x] label`) and visible
+    free-text annotations are read after the page text, with box, `region` `form` /
+    `annotation` and the field name. Sticky notes and highlights are only counted
+    (`pdf_comments_not_read`). A page read by OCR keeps only what OCR saw, so nothing doubles
+- Caches: DOCX and HTML raw documents are extracted once more; of the PDFs only those with a
+  form are, so cached OCR work on other PDFs is kept
+
 - New: DOCX to PDF keeps the layout. When Microsoft Word (Windows) or LibreOffice is installed,
   PDFStruct lets that program draw the document, so text boxes, headers and footers, images,
   fonts and columns appear as in Word. Without one the PDF is the readable re-flow as before,
