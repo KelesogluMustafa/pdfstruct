@@ -70,3 +70,14 @@ def test_python_dash_m(tmp_path):
                             cwd=tmp_path, capture_output=True, text=True)
     assert result.returncode == 0 and "FORMAT: txt" in result.stdout
     assert (tmp_path / "output" / "a.txt").is_file()
+
+
+@pytest.mark.parametrize("entry", ["entry_cli.py", "entry_gui.py", "entry_create.py"])
+def test_portable_entry_points_answer_the_word_child_call(entry):
+    # Frozen, sys.executable is the program itself: the layout renderer's Word child arrives as
+    # "<exe> -m pdfstruct.render ...". It must reach pdfstruct.render, not the CLI or a window.
+    script = Path(__file__).resolve().parent.parent / "packaging" / "windows" / entry
+    result = subprocess.run([sys.executable, str(script), "-m", "pdfstruct.render"],
+                            capture_output=True, text=True, timeout=120)
+    assert result.returncode == 2
+    assert "usage: python -m pdfstruct.render word" in result.stderr
