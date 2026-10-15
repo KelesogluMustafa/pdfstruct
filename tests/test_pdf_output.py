@@ -32,7 +32,8 @@ def read_pdf(path) -> tuple[int, list[str], list[tuple]]:
 
 
 def test_docx_to_pdf_keeps_unicode_and_structure(tmp_path):
-    item = convert(make_docx(tmp_path / "bericht.docx"))
+    # the re-flow writer itself; layout rendering through Word/LibreOffice is in test_render.py
+    item = convert(make_docx(tmp_path / "bericht.docx"), pdf_mode="reflow")
     assert item.status == "succeeded" and Path(item.outputs["pdf"]).name == "bericht.docx.pdf"
     count, texts, sizes = read_pdf(item.outputs["pdf"])
     text = " ".join(" ".join(texts).split())

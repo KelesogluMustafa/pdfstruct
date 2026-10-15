@@ -25,6 +25,7 @@ dependencies = [
     "openpyxl>=3.1",     # xlsx export
     "python-docx>=1.1",  # docx input and export
     "reportlab>=5,<6",   # pdf export (BSD; ships the Bitstream Vera fonts it uses)
+    "pywin32>=306; sys_platform == 'win32'",  # DOCX -> PDF layout through an installed Word (COM)
     # OCR backend, installed automatically where paddlepaddle publishes CPU wheels
     # (Windows x86_64, Linux x86_64, macOS arm64; Python 3.9-3.13). Elsewhere native
     # extraction still works and OCR reports that it is unavailable.

@@ -26,6 +26,7 @@ import sys
 from pathlib import Path
 
 from . import __version__, export, extract, inputs
+from .render import PDF_MODES
 
 COMMANDS = ["json", *export.FORMATS]             # ten output formats
 ALIAS_COMMANDS = [c for c in COMMANDS if c != "pdf"]  # pdfjson ... pdfsqlite (no "pdfpdf")
@@ -110,6 +111,9 @@ def build_arg_parser(command: str, prog: str) -> argparse.ArgumentParser:
     ap.add_argument("--config")
     ap.add_argument("--all-types", action="store_true",
                     help="in a folder, take every supported input type, not only PDFs")
+    ap.add_argument("--pdf-mode", choices=PDF_MODES, default="auto",
+                    help="DOCX to PDF: auto = Word/LibreOffice layout when installed, else re-flow; "
+                         "layout = layout or fail; reflow = always the readable re-flow")
     if command == "json":
         ap.add_argument("--overwrite", action="store_true")
         ap.add_argument("--parser")
@@ -176,7 +180,7 @@ def run(command: str, argv: list[str] | None = None, cwd: Path | None = None,
     rest = ["--input", str(input_path), "--output", str(out_dir), *_passthrough(args)]
     if command == "json":
         return run_json(rest, out_dir)
-    return export.main(["--format", command, *rest])
+    return export.main(["--format", command, *rest, "--pdf-mode", args.pdf_mode])
 
 
 def _passthrough(args) -> list[str]:
@@ -196,7 +200,8 @@ def job_options(args) -> dict:
     mode = ("force-ocr" if getattr(args, "force_ocr", False)
             else "native-only" if getattr(args, "native_only", False) else "auto")
     return {"mode": mode, "overwrite": bool(getattr(args, "overwrite", False)),
-            "config": getattr(args, "config", None), "parser": getattr(args, "parser", None)}
+            "config": getattr(args, "config", None), "parser": getattr(args, "parser", None),
+            "pdf_mode": getattr(args, "pdf_mode", "auto")}
 
 
 def convert(paths: list[Path], formats: list[str], out_dir: Path, options: dict | None = None,
@@ -234,6 +239,8 @@ def convert(paths: list[Path], formats: list[str], out_dir: Path, options: dict 
         write(f"ERROR: {exc}\n")
         return 1
     for item in result.files:
+        if item.pdf_renderer not in (None, "reflow"):
+            write(f"  i {Path(item.input_path).name}: PDF layout rendered by {item.pdf_renderer}\n")
         for warning in item.warnings:
             write(f"  ! {Path(item.input_path).name}: {warning}\n")
     if result.ocr_unavailable_reason:

@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+- New: DOCX to PDF keeps the layout. When Microsoft Word (Windows) or LibreOffice is installed,
+  PDFStruct lets that program draw the document, so text boxes, headers and footers, images,
+  fonts and columns appear as in Word. Without one the PDF is the readable re-flow as before,
+  with the warning `pdf_layout_unavailable`; a failing engine gives `pdf_layout_failed` and the
+  re-flow
+- `pdf_mode` = `auto` (default) | `layout` (fail instead of falling back) | `reflow` (never use an
+  engine): CLI `--pdf-mode`, MCP `convert(pdf_mode=...)`, service `JobRequest.pdf_mode`. Results
+  name the engine (`pdf_renderer`: word, libreoffice or reflow); the MCP answer lists it only
+  when an engine was used. The `convert` tool gains this one optional parameter
+- Safe by default: every render runs in its own process with a time limit
+  (`PDFSTRUCT_RENDER_TIMEOUT`, 180 s) on a private copy in a temporary folder. The source is
+  never opened in place and no lock file appears next to it. Word runs as a separate hidden
+  instance with macros disabled and is never the Word the user has open; on a timeout only the
+  instance this run started is stopped. A password-protected file fails at once instead of
+  waiting for a hidden dialog. `PDFSTRUCT_RENDERER` = word | libreoffice | none limits the choice
+- Fix: the DOCX reader now reads text boxes (for example a CV sidebar with contact details),
+  page headers and page footers. Their blocks carry `region` (`textbox`, `header`, `footer`;
+  additive in schema 1.1) and appear in JSON, Markdown, TXT and every other text output. Word's
+  duplicate VML copy of a text box is not read twice. Images in floating frames are counted too
+- Cached DOCX raw documents are extracted once more because the reader changed; PDF caches
+  (and their OCR) are kept
+- Windows installs `pywin32` (PSF license) for the Word engine
+
 ## 0.3.1
 
 - Fix: writing XLSX no longer slows down with every row. A 73-page PDF with about 29,000

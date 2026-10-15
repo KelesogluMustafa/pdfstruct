@@ -369,6 +369,14 @@
           "type": "integer",
           "minimum": 0,
           "description": "table_row: index of its table"
+        },
+        "region": {
+          "enum": [
+            "header",
+            "footer",
+            "textbox"
+          ],
+          "description": "DOCX: block read from a page header, page footer or text box. Absent for body text."
         }
       }
     }

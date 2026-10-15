@@ -66,7 +66,9 @@ def supported_formats() -> dict:
             "Everything runs locally; convert returns file names, not content.",
             "PDF: native text first, OCR per page only when needed. Images: always OCR.",
             "csv/xlsx list text blocks; they are not reconstructed tables.",
-            "pdf output is a readable re-flow (text inputs) or picture + searchable text (images).",
+            "DOCX -> pdf keeps the layout when Microsoft Word or LibreOffice is installed "
+            "(pdf_mode auto); otherwise, and for TXT/MD/HTML, pdf is a readable re-flow. "
+            "Images become picture + searchable text.",
             "A PDF input is not written again as PDF (reported as already_pdf).",
             "Outputs go to an 'output' folder next to each input unless output_dir is given.",
         ],
@@ -101,7 +103,7 @@ def _run_job_in_child(request: dict) -> dict:
 
 
 def convert(paths: list[str], formats: list[str], output_dir: str | None = None,
-            force_ocr: bool = False) -> dict:
+            force_ocr: bool = False, pdf_mode: str = "auto") -> dict:
     """Convert files locally. Returns per-file status, counts and output file names only."""
     if isinstance(paths, str):
         paths = [paths]
@@ -113,9 +115,13 @@ def convert(paths: list[str], formats: list[str], output_dir: str | None = None,
         wanted = service.normalize_formats(formats)
     except ValueError as exc:
         return _error("bad_request", str(exc))
+    if pdf_mode not in service.PDF_MODES:
+        return _error("bad_request", f"unknown pdf_mode: {pdf_mode} "
+                                     f"(choose from {', '.join(service.PDF_MODES)})")
     result = _run_job_in_child({"inputs": [str(p) for p in paths], "formats": wanted,
                                 "output_dir": output_dir,
-                                "mode": "force-ocr" if force_ocr else "auto"})
+                                "mode": "force-ocr" if force_ocr else "auto",
+                                "pdf_mode": pdf_mode})
     if "files" not in result:
         return result if "error_code" in result else _error("worker_failed", "no result")
 
@@ -130,6 +136,8 @@ def convert(paths: list[str], formats: list[str], output_dir: str | None = None,
             entry.update(method=item["method"], pages=item["pages"], output_dir=folder, outputs=names)
             if item["ocr_used"]:
                 entry["ocr_used"] = True
+            if item.get("pdf_renderer") not in (None, "reflow"):  # a fallback shows as a warning
+                entry["pdf_renderer"] = item["pdf_renderer"]
             if item["review_pages"]:
                 entry["review_pages"] = item["review_pages"][:10]
         if item["skipped_formats"]:
@@ -295,10 +303,12 @@ def build_server():
                  description="Convert local files (PDF, DOCX, TXT, MD, HTML, images) into one or "
                              "more formats (json, html, txt, md, csv, xlsx, docx, jsonl, sqlite, "
                              "pdf) on this computer. Returns status and output file names only, "
-                             "never document content.")
+                             "never document content. pdf_mode (DOCX -> PDF): auto keeps the "
+                             "layout through Word or LibreOffice when installed, else re-flow; "
+                             "layout fails without them; reflow is always the readable re-flow.")
     def _convert(paths: list[str], formats: list[str], output_dir: str | None = None,
-                 force_ocr: bool = False) -> str:
-        return _dump(convert(paths, formats, output_dir, force_ocr))
+                 force_ocr: bool = False, pdf_mode: str = "auto") -> str:
+        return _dump(convert(paths, formats, output_dir, force_ocr, pdf_mode))
 
     @server.tool(name="read_excerpt", structured_output=False,
                  description="Read at most 2000 characters of extracted text from a converted "

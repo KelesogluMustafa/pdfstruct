@@ -28,6 +28,9 @@ EXTENSIONS = {
     ".webp": "webp",
 }
 IMAGE_FORMATS = ("jpeg", "png", "tiff", "bmp", "webp")
+# Raised when an adapter starts reading more of its format, so cached raw documents of that
+# format are extracted again. Formats without an entry keep their fingerprint unchanged.
+READER_REVISIONS = {"docx": "2"}  # 2: text boxes, headers and footers
 TEXT_FORMATS = ("docx", "txt", "md", "html")  # text is read directly; OCR never applies
 INPUT_FORMATS = ("pdf", *TEXT_FORMATS, *IMAGE_FORMATS)
 
