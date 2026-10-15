@@ -26,7 +26,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from . import extract, inputs
+from . import extract, inputs, render
 
 FORMATS = {"html": ".html", "txt": ".txt", "md": ".md", "csv": ".csv", "xlsx": ".xlsx",
            "docx": ".docx", "jsonl": ".jsonl", "sqlite": ".sqlite", "pdf": ".pdf"}
@@ -566,6 +566,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--config", help="config JSON for the extraction step")
     ap.add_argument("--all-types", action="store_true",
                     help="in a folder, take every supported input type, not only PDFs")
+    ap.add_argument("--pdf-mode", choices=render.PDF_MODES, default="auto",
+                    help="DOCX to PDF: auto = Word/LibreOffice layout when installed, else re-flow; "
+                         "layout = layout or fail; reflow = always the readable re-flow")
     return ap
 
 
@@ -622,7 +625,7 @@ def main(argv: list[str] | None = None) -> int:
         extraction_log = extract_missing(targets, out_dir, args)
 
     suffix = FORMATS[args.format]
-    exported, extracted, stale, errors, notes = 0, 0, [], [], []
+    exported, extracted, stale, errors, notes, rendered = 0, 0, [], [], [], []
     for stem in work:
         raw_path = out_dir / (stem + RAW_SUFFIX)
         if not raw_path.is_file():
@@ -634,6 +637,16 @@ def main(argv: list[str] | None = None) -> int:
             source = pdfs.get(stem)
             if source is not None and target == source:
                 raise ValueError("output would overwrite the source file; choose another --output")
+            if args.format == "pdf" and source is not None \
+                    and inputs.input_format(source) in render.RENDERABLE:
+                engine, note = render.layout_pdf(source, target, args.pdf_mode)
+                if engine:
+                    rendered.append(f"{stem} ({engine})")
+                    exported += 1
+                    extracted += stem in missing
+                    continue
+                if note:
+                    notes.append(f"{stem}: {note}")
             reason, warnings = write_format(raw, args.format, target)
             if reason:
                 skipped.append(stem)
@@ -655,6 +668,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"EXTRACTED: {extracted}")
     if skipped:
         print(f"SKIPPED: {len(skipped)} (already PDF: {', '.join(skipped[:5])})")
+    if rendered:
+        print(f"LAYOUT_RENDERED: {', '.join(rendered[:10])}")
     if stale:
         print(f"STALE_RAW: {', '.join(stale)} (source changed; run pdfjson to refresh)")
     for note in notes[:10]:

@@ -128,7 +128,10 @@ you explicitly ask Claude to read or search it. Step-by-step setup, the MCP tool
 ## Important limitations
 
 - **CSV and XLSX** contain extracted text blocks, one per row. They are not reconstructed tables.
-- **DOCX to PDF** and **created PDFs** are a readable reflow, not a pixel-perfect layout.
+- **DOCX to PDF** keeps the layout (text boxes, headers, images, fonts) only when Microsoft Word
+  or LibreOffice is installed; PDFStruct then lets that program draw the page. Without one, and
+  for TXT, Markdown, HTML and **created PDFs**, the PDF is a readable reflow, not a layout copy.
+  `--pdf-mode reflow` always gives the reflow, `--pdf-mode layout` fails instead of falling back.
 - **Same-format conversions** (DOCX to DOCX, Markdown to Markdown) keep the text, not the styling.
 - PDFStruct does **not** summarize, understand meaning or extract fields such as invoice
   numbers. It produces reliable raw text and structure.

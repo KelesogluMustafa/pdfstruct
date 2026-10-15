@@ -204,7 +204,7 @@ def test_six_tools_and_the_first_five_keep_their_schemas():
     assert {name: shape(name) for name in tools if name != "create_document"} == {
         "supported_formats": ([], []),
         "inspect": (["path"], ["path"]),
-        "convert": (["force_ocr", "formats", "output_dir", "paths"], ["formats", "paths"]),
+        "convert": (["force_ocr", "formats", "output_dir", "paths", "pdf_mode"], ["formats", "paths"]),
         "read_excerpt": (["max_chars", "offset", "page", "path_or_output"], ["path_or_output"]),
         "search": (["limit", "path_or_output", "query"], ["path_or_output", "query"])}
     assert tools["convert"].description.startswith("Convert local files (PDF, DOCX, TXT, MD, HTML, images)")

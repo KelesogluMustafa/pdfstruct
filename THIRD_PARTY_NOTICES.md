@@ -12,6 +12,7 @@ official model repository.
 | openpyxl | XLSX export | MIT |
 | python-docx | DOCX input and export | MIT |
 | reportlab | PDF export | BSD-3-Clause |
+| pywin32 (Windows only) | DOCX to PDF layout through an installed Microsoft Word (COM) | PSF-2.0 |
 | Bitstream Vera fonts (shipped inside reportlab) | text in PDF output | Bitstream Vera Fonts license (permissive) |
 | paddleocr | OCR pipeline | Apache-2.0 |
 | paddlepaddle | OCR inference runtime (CPU build) | Apache-2.0 |

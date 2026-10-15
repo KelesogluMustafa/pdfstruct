@@ -510,7 +510,8 @@ def extract_one(path: Path, out_dir: Path, mode: str, cfg: dict, client: ocr.Ocr
     try:
         stat = path.stat()
         sha = sha256_file(path)
-        fingerprint = hashlib.sha256((sha + opts_key).encode()).hexdigest()[:16]
+        revision = inputs.READER_REVISIONS.get(inputs.input_format(path) or "pdf", "")
+        fingerprint = hashlib.sha256((sha + opts_key + revision).encode()).hexdigest()[:16]
         summary = None
         if not overwrite and raw_path.is_file() and summary_path.is_file():
             try:

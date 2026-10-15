@@ -436,6 +436,17 @@ DOCX → PDF is a different class of problem because accurate layout rendering m
 
 Do not promise pixel-identical Word rendering unless a tested renderer exists.
 
+Delivered (branch feat/docx-layout-render): `pdfstruct.render` draws a DOCX with an installed
+office engine (Microsoft Word through COM on Windows, else LibreOffice headless) and is the
+only module that does so. It bypasses the raw document, because the raw document has no
+layout. `pdf_mode` = auto | layout | reflow (JobRequest, CLI `--pdf-mode`, MCP `convert`);
+`render.layout_pdf` holds the one decision for the service and the export command. Every run
+is a separate, time-limited process on a private copy in a temporary folder; Word runs as its
+own hidden instance with macros disabled and only that instance is stopped on a timeout.
+Fidelity is that of the engine, tested with Word; no engine means the readable re-flow plus
+the warning `pdf_layout_unavailable`. The DOCX reader also reads text boxes, headers and
+footers (block `region`), so text outputs no longer lose a CV sidebar.
+
 ---
 
 # 10. Image input — planned
@@ -1468,8 +1479,9 @@ Outputs: JSON, HTML, TXT, Markdown, CSV, XLSX, DOCX, JSONL, SQLite and PDF.
 
 - CSV/XLSX are block listings, not reconstructed tables. DOCX/HTML tables are not marketed as
   semantic spreadsheets.
-- Image to DOCX/Markdown/HTML is OCR text only. Text PDF output is a readable re-flow, not a
-  pixel-faithful rendering of the source; DOCX to PDF layout fidelity is not promised.
+- Image to DOCX/Markdown/HTML is OCR text only. TXT/MD/HTML PDF output is a readable re-flow,
+  not a pixel-faithful rendering. DOCX to PDF keeps the layout only through an installed Word or
+  LibreOffice (`pdfstruct.render`); without one it is the re-flow, with a warning.
 - Same-format round trips (DOCX to DOCX, MD to MD, TXT to TXT, HTML to HTML) lose styling and are
   reported with a warning. OCR options on text inputs are reported, not silently ignored.
 

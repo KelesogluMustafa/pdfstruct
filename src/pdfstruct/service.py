@@ -14,9 +14,10 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from . import export, extract, inputs, ocr
+from . import export, extract, inputs, ocr, render
 
 MODES = ("auto", "force-ocr", "native-only")
+PDF_MODES = render.PDF_MODES
 OUTPUT_FORMATS = ["json", *export.FORMATS]  # ten formats; "json" is the raw document
 INPUT_FORMATS = list(inputs.INPUT_FORMATS)
 INPUT_EXTENSIONS = sorted(inputs.EXTENSIONS)
@@ -33,6 +34,7 @@ class JobRequest:
     overwrite: bool = False               # re-extract even if an up-to-date raw JSON exists
     config: Path | str | None = None
     parser: Path | str | None = None      # optional project parser (parse(raw, context))
+    pdf_mode: str = "auto"                # DOCX -> PDF: auto | layout | reflow (see render)
 
 
 @dataclass
@@ -45,6 +47,7 @@ class FileResult:
     ocr_used: bool = False
     review_pages: list = field(default_factory=list)
     raw_reused: bool = False              # extraction skipped: up-to-date raw JSON found
+    pdf_renderer: str | None = None       # word | libreoffice | reflow (only when PDF was written)
     outputs: dict = field(default_factory=dict)          # format -> path
     skipped_formats: dict = field(default_factory=dict)  # format -> reason
     warnings: list = field(default_factory=list)         # at most MAX_WARNINGS, short
@@ -124,6 +127,8 @@ def run_job(request: JobRequest, on_event=None, cancel=None) -> JobResult:
     formats = normalize_formats(request.formats)
     if request.mode not in MODES:
         raise ValueError(f"unknown mode: {request.mode} (choose from {', '.join(MODES)})")
+    if request.pdf_mode not in PDF_MODES:
+        raise ValueError(f"unknown pdf mode: {request.pdf_mode} (choose from {', '.join(PDF_MODES)})")
     cfg = extract.load_config(Path(request.config) if request.config else None)
     parser_module = extract.load_parser(Path(request.parser).resolve()) if request.parser else None
     paths = [Path(p).expanduser().resolve() for p in request.inputs]
@@ -245,9 +250,20 @@ def _convert_one(path, item, request, formats, cfg, client, opts_key, parser_mod
                 if target in sources:
                     raise ValueError(f"{target.name} is an input of this job and is never "
                                      "overwritten; choose another output folder")
+                if fmt == "pdf" and fmt_in in render.RENDERABLE:
+                    engine, note = render.layout_pdf(path, target, request.pdf_mode)
+                    if engine:
+                        item.pdf_renderer = engine
+                        item.outputs[fmt] = str(target)
+                        emit({"type": "export_done", "format": fmt, "ok": True, "path": str(target)})
+                        continue
+                    if note:
+                        item.warnings = _merge_warnings(item.warnings, [note])
                 if raw is None:
                     raw = json.loads(raw_path.read_text(encoding="utf-8"))
                 reason, warnings = export.write_format(raw, fmt, target)
+                if fmt == "pdf" and not reason:
+                    item.pdf_renderer = "reflow"
                 if reason:
                     item.skipped_formats[fmt] = reason
                     emit({"type": "export_done", "format": fmt, "ok": True, "skipped": reason})
@@ -331,7 +347,7 @@ def main(argv: list[str] | None = None) -> int:
     request_file, result_file = Path(args[0]), Path(args[1])
     try:
         fields = json.loads(request_file.read_text(encoding="utf-8"))
-        allowed = {"inputs", "formats", "output_dir", "mode", "overwrite", "config"}
+        allowed = {"inputs", "formats", "output_dir", "mode", "overwrite", "config", "pdf_mode"}
         result = run_job(JobRequest(**{k: v for k, v in fields.items() if k in allowed})).to_dict()
     except (ValueError, TypeError, OSError) as exc:
         result = {"ok": False, "error_code": "bad_request", "error": short(exc)}
