@@ -177,6 +177,79 @@ def extract_native(page) -> dict:
     }
 
 
+# ---------------------------------------------------------------- form fields and annotations
+# pdfium's text layer holds the page content only. A filled-in form value and a free-text
+# annotation are drawn on the page but live in annotations, so they are read here.
+FORMS_REVISION = "forms-1"  # part of the fingerprint of PDFs that have a form
+_CHECKABLE = {getattr(pdfium_c, "FPDF_FORMFIELD_CHECKBOX", 2), getattr(pdfium_c, "FPDF_FORMFIELD_RADIOBUTTON", 3)}
+_VALUE_FIELDS = {getattr(pdfium_c, name, None) for name in
+                 ("FPDF_FORMFIELD_TEXTFIELD", "FPDF_FORMFIELD_COMBOBOX", "FPDF_FORMFIELD_LISTBOX")}
+_COMMENT_SUBTYPES = {getattr(pdfium_c, name, None) for name in
+                     ("FPDF_ANNOT_TEXT", "FPDF_ANNOT_HIGHLIGHT", "FPDF_ANNOT_UNDERLINE",
+                      "FPDF_ANNOT_SQUIGGLY", "FPDF_ANNOT_STRIKEOUT", "FPDF_ANNOT_INK")}
+
+
+def _wide_string(function, *args) -> str:
+    """Call a pdfium getter that fills a UTF-16LE buffer and returns its byte length."""
+    size = function(*args, None, 0)
+    if size <= 2:
+        return ""
+    buffer = ctypes.create_string_buffer(size)
+    function(*args, ctypes.cast(buffer, ctypes.POINTER(pdfium_c.FPDF_WCHAR)), size)
+    return buffer.raw[:size - 2].decode("utf-16-le", errors="replace")
+
+
+def pdf_has_form(pdf) -> bool:
+    try:
+        return pdf.get_formtype() != pdfium_c.FORMTYPE_NONE
+    except Exception:
+        return False
+
+
+def page_annotations(page, formenv, width: float, height: float) -> tuple[list[dict], int]:
+    """Filled-in form values and free-text annotations of a page as blocks, plus the number of
+    comment annotations (notes, highlights) that are not page text and are only counted."""
+    blocks, comments = [], 0
+    for index in range(pdfium_c.FPDFPage_GetAnnotCount(page.raw)):
+        annot = pdfium_c.FPDFPage_GetAnnot(page.raw, index)
+        if not annot:
+            continue
+        try:
+            subtype = pdfium_c.FPDFAnnot_GetSubtype(annot)
+            block = None
+            if subtype == pdfium_c.FPDF_ANNOT_WIDGET and formenv is not None:
+                kind = pdfium_c.FPDFAnnot_GetFormFieldType(formenv, annot)
+                name = _wide_string(pdfium_c.FPDFAnnot_GetFormFieldName, formenv, annot)
+                if kind in _CHECKABLE:
+                    if pdfium_c.FPDFAnnot_IsChecked(formenv, annot):
+                        label = _wide_string(pdfium_c.FPDFAnnot_GetFormFieldAlternateName,
+                                             formenv, annot) or name
+                        block = {"text": f"[x] {label}".strip(), "region": "form", "field": name}
+                elif kind in _VALUE_FIELDS:
+                    value = _wide_string(pdfium_c.FPDFAnnot_GetFormFieldValue, formenv, annot)
+                    if value.strip():
+                        block = {"text": value.replace("\r\n", "\n").replace("\r", "\n").strip(),
+                                 "region": "form", "field": name}
+            elif subtype == pdfium_c.FPDF_ANNOT_FREETEXT:
+                value = _wide_string(pdfium_c.FPDFAnnot_GetStringValue, annot, b"Contents")
+                if value.strip():
+                    block = {"text": value.strip(), "region": "annotation"}
+            elif subtype in _COMMENT_SUBTYPES:
+                comments += 1
+            if block is not None:
+                rect = pdfium_c.FS_RECTF()
+                if pdfium_c.FPDFAnnot_GetRect(annot, ctypes.byref(rect)):
+                    bbox = _to_display_bbox(page, width, height, rect.left, rect.bottom,
+                                            rect.right, rect.top)
+                    block["bbox"] = [round(v, 2) for v in bbox]
+                else:
+                    block["bbox"] = None
+                blocks.append(block)
+        finally:
+            pdfium_c.FPDFPage_CloseAnnot(annot)
+    return blocks, comments
+
+
 # ---------------------------------------------------------------- quality score
 
 def score_text_layer(native: dict, qcfg: dict) -> dict:
@@ -273,7 +346,7 @@ def ocr_page(page, native: dict, client: ocr.OcrEngine, ocfg: dict, tmp_dir: Pat
 NO_TEXT_FOUND = "no_text_found: OCR ran and did not find text on this page"
 
 def process_page(page, number: int, mode: str, cfg: dict, client: ocr.OcrEngine, tmp_dir: Path,
-                 notify=None) -> dict:
+                 notify=None, formenv=None) -> dict:
     qcfg = cfg["quality"]
     native = extract_native(page)
     quality = score_text_layer(native, qcfg)
@@ -319,6 +392,19 @@ def process_page(page, number: int, mode: str, cfg: dict, client: ocr.OcrEngine,
             warnings.append(f"ocr_failed: {exc}")
             needs_review = True
 
+    try:
+        extra, comments = page_annotations(page, formenv, native["width"], native["height"])
+    except Exception as exc:  # an odd annotation never costs the page text
+        extra, comments = [], 0
+        warnings.append(f"annotations_unreadable: {type(exc).__name__}")
+    if extra and method != "ocr":  # an OCR page already read what the annotations draw
+        blocks = blocks + extra
+        text = "\n".join(t for t in (text.rstrip("\n"), *(b["text"] for b in extra)) if t)
+        if method == "none":
+            method = "native"
+    if comments:
+        warnings.append(f"pdf_comments_not_read: {comments} comment annotation(s) are not page text")
+
     for order, block in enumerate(blocks):
         block["order"] = order
     quality_out = {k: quality[k] for k in (
@@ -351,6 +437,10 @@ def process_pdf(pdf_path: Path, raw_path: Path, summary_path: Path, mode: str,
     page_summaries, doc_warnings = [], []
     pdf = pdfium.PdfDocument(str(pdf_path))
     try:
+        formenv = None
+        if pdf_has_form(pdf):  # must happen before any page is loaded
+            pdf.init_forms()
+            formenv = pdf.formenv.raw if pdf.formenv is not None else None
         page_count = len(pdf)
         with tempfile.TemporaryDirectory(prefix="pdfpipe_") as tmp, \
                 pages_tmp.open("w", encoding="utf-8") as pages_out:
@@ -361,7 +451,7 @@ def process_pdf(pdf_path: Path, raw_path: Path, summary_path: Path, mode: str,
                     page = pdf[index]
                     try:
                         record = process_page(page, index + 1, mode, cfg, client, Path(tmp),
-                                              notify=on_event)
+                                              notify=on_event, formenv=formenv)
                     finally:
                         page.close()
                 except Exception as exc:
@@ -494,6 +584,19 @@ def output_key(path: Path) -> str:
     return path.stem if path.suffix.lower() == ".pdf" else path.name
 
 
+def _pdf_revision(path: Path) -> str:
+    """Only PDFs with a form changed how they are read; every other PDF keeps its cache
+    (and the OCR work inside it)."""
+    try:
+        pdf = pdfium.PdfDocument(str(path))
+    except Exception:
+        return ""
+    try:
+        return FORMS_REVISION if pdf_has_form(pdf) else ""
+    finally:
+        pdf.close()
+
+
 def extract_one(path: Path, out_dir: Path, mode: str, cfg: dict, client: ocr.OcrEngine,
                 opts_key: str, *, overwrite: bool = False, on_event=None, cancel=None) -> dict:
     """Extract one input into <out_dir>/<key>.raw.json unless an up-to-date one exists.
@@ -510,7 +613,9 @@ def extract_one(path: Path, out_dir: Path, mode: str, cfg: dict, client: ocr.Ocr
     try:
         stat = path.stat()
         sha = sha256_file(path)
-        revision = inputs.READER_REVISIONS.get(inputs.input_format(path) or "pdf", "")
+        fmt_key = inputs.input_format(path) or "pdf"
+        revision = (_pdf_revision(path) if fmt_key == "pdf"
+                    else inputs.READER_REVISIONS.get(fmt_key, ""))
         fingerprint = hashlib.sha256((sha + opts_key + revision).encode()).hexdigest()[:16]
         summary = None
         if not overwrite and raw_path.is_file() and summary_path.is_file():
