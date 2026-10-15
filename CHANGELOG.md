@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
 - Fix: text that readers dropped without a word is now read
   - DOCX: text inside content controls (form fields), simple and complex fields (only the
@@ -45,14 +45,13 @@
   (and their OCR) are kept
 - Windows installs `pywin32` (PSF license) for the Word engine
 
-## 0.3.1
-
 - Fix: writing XLSX no longer slows down with every row. A 73-page PDF with about 29,000
   blocks took 277 seconds to write and now takes 2; the file content is unchanged
 - Fix: a PDF page that is only a picture and on which OCR finds no text is no longer reported
   as read by OCR. Its method is `none` and it carries the warning `no_text_found`, like an
   image without text. The page is kept, and no text is invented. A document made only of such
   pages reports `ocr_used: false`
+- 0.3.1 was prepared but never published; its two fixes above ship in 0.4.0
 
 ## 0.3.0
 

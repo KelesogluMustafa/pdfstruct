@@ -3,7 +3,7 @@
 
 Run it with the Python of that runtime:
 
-    <runtime>\\Scripts\\python.exe verify_runtime.py --expect 0.3.1
+    <runtime>\\Scripts\\python.exe verify_runtime.py --expect 0.4.0
 
 Checks, in order: the package (version, not editable, loaded from inside the runtime), the
 command line (version and one real conversion), and the MCP server over stdio (initialize,

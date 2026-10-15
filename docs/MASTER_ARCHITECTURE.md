@@ -1033,6 +1033,11 @@ document model.
 
 ## v0.4 — PDF utilities
 
+Owner decision (2026-10-15): v0.4.0 ships DOCX to PDF with the layout kept through an
+installed Word or LibreOffice, the fixes for text that readers dropped, and the fixes prepared
+as 0.3.1 (which was never published). The PDF utilities below move to a later minor version.
+
+
 - merge
 - split
 - rotate
